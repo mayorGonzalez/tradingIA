@@ -1,0 +1,43 @@
+2026-02-22 21:21:53.546 | INFO     | __main__:test_nansen_connection:7 - 🧪 Iniciando prueba de conexión con Nansen API...
+2026-02-22 21:21:53.548 | INFO     | __main__:test_nansen_connection:8 - Endpoint: https://api.nansen.ai/api/v1
+2026-02-22 21:21:54.830 | ERROR    | __main__:test_nansen_connection:27 - ❌ Error al conectar con Nansen: Client error '404 Not Found' for url 'https://api.nansen.ai/api/v1/smart-money-flow/netflows'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2026-02-22 21:22:26.873 | INFO     | __main__:test_nansen_connection:7 - 🧪 Iniciando prueba de conexión con Nansen API...
+2026-02-22 21:22:26.876 | INFO     | __main__:test_nansen_connection:8 - Endpoint: https://api.nansen.ai/api/v1
+2026-02-22 21:22:28.186 | ERROR    | __main__:test_nansen_connection:27 - ❌ Error al conectar con Nansen: Client error '422 Unprocessable Entity' for url 'https://api.nansen.ai/api/v1/smart-money/netflow'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422
+2026-02-22 21:25:40.612 | INFO     | __main__:test_nansen_connection:7 - 🧪 Iniciando prueba de conexión con Nansen API...
+2026-02-22 21:25:40.613 | INFO     | __main__:test_nansen_connection:8 - Endpoint: https://api.nansen.ai/api/v1
+2026-02-22 21:25:43.480 | ERROR    | __main__:test_nansen_connection:27 - ❌ Error al conectar con Nansen: 1 validation error for NansenResponse
+total_records
+  Field required [type=missing, input_value={'data': [{'token_address... 'is_last_page': False}}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+2026-02-22 21:26:06.974 | INFO     | __main__:test_nansen_connection:7 - 🧪 Iniciando prueba de conexión con Nansen API...
+2026-02-22 21:26:06.976 | INFO     | __main__:test_nansen_connection:8 - Endpoint: https://api.nansen.ai/api/v1
+2026-02-22 21:26:09.771 | SUCCESS  | __main__:test_nansen_connection:16 - ✅ Conexión exitosa con Nansen!
+2026-02-22 21:26:09.772 | INFO     | __main__:test_nansen_connection:17 - Total de registros encontrados: None
+2026-02-22 21:26:09.772 | INFO     | __main__:test_nansen_connection:20 - Muestra de los primeros 3 tokens detectados:
+2026-02-22 21:26:09.774 | INFO     | __main__:test_nansen_connection:22 -   - BOBOCOIN (0xb0b0887ebda98b7f189fc5e8c67b4973b65f152c): $1,686.81
+2026-02-22 21:26:09.774 | INFO     | __main__:test_nansen_connection:22 -   - AURA (0xc0c293ce456ff0ed870add98a0828dd4d2903dbf): $0.00
+2026-02-22 21:26:09.774 | INFO     | __main__:test_nansen_connection:22 -   - AMP (0xff20817765cb7f73d4bde2e66e067e58d11095c2): $0.00
+2026-02-22 21:43:58.653 | INFO     | __main__:test_full_pipeline:17 - ============================================================
+2026-02-22 21:43:58.653 | INFO     | __main__:test_full_pipeline:18 - 🚀 TEST COMPLETO DEL PIPELINE DE SEÑALES (API REAL)
+2026-02-22 21:43:58.654 | INFO     | __main__:test_full_pipeline:19 - Umbral mínimo de inflow: $1,000
+2026-02-22 21:43:58.654 | INFO     | __main__:test_full_pipeline:20 - Score mínimo para señal válida: 75.0
+2026-02-22 21:43:58.656 | INFO     | __main__:test_full_pipeline:21 - ============================================================
+2026-02-22 21:43:58.721 | INFO     | __main__:test_full_pipeline:31 - 📡 Consultando 3 endpoints de Nansen en paralelo...
+2026-02-22 21:44:02.583 | INFO     | app.services.nansen_client:get_dex_trades:87 - [Nansen] DEX Trades: 10 operaciones recientes
+2026-02-22 21:44:02.586 | INFO     | app.services.nansen_client:get_smart_money_flows:42 - [Nansen] Netflow: 10 tokens (chain=ethereum)
+2026-02-22 21:44:03.018 | INFO     | app.services.nansen_client:get_smart_money_holdings:64 - [Nansen] Holdings: 10 tokens en cartera Smart Money
+2026-02-22 21:44:03.018 | INFO     | __main__:test_full_pipeline:38 -   → Netflow:   10 tokens
+2026-02-22 21:44:03.019 | INFO     | __main__:test_full_pipeline:39 -   → Holdings:  10 tokens en cartera
+2026-02-22 21:44:03.019 | INFO     | __main__:test_full_pipeline:40 -   → DEX Trades: 10 operaciones recientes
+2026-02-22 21:44:03.019 | INFO     | __main__:test_full_pipeline:42 - 
+2026-02-22 21:44:03.019 | INFO     | __main__:test_full_pipeline:43 - 🔬 Ejecutando scoring multidimensional...
+2026-02-22 21:44:03.074 | INFO     | app.services.signal_engine:analyze_flows:74 - Evaluando 1 tokens con inflow > $1,000...
+2026-02-22 21:44:03.098 | INFO     | app.services.signal_engine:analyze_flows:89 - Scoring completado → 0 candidatos, 0 superan umbral de 75.0pts
+2026-02-22 21:44:03.098 | INFO     | __main__:test_full_pipeline:50 - 
+2026-02-22 21:44:03.099 | INFO     | __main__:test_full_pipeline:51 - 📊 RANKING DE SEÑALES:
+2026-02-22 21:44:03.099 | INFO     | __main__:test_full_pipeline:52 - ------------------------------------------------------------
+2026-02-22 21:44:03.099 | INFO     | __main__:test_full_pipeline:66 - ------------------------------------------------------------
+2026-02-22 21:44:03.099 | INFO     | __main__:test_full_pipeline:67 - ✅ 0 señales válidas listas para operar

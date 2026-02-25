@@ -5,6 +5,20 @@ build/
 dist/
 wheels/
 *.egg-info
+.mypy_cache/
+.ruff_cache/
 
 # Virtual environments
-.venv
+.venv/
+
+# Environment variables and sensitive data
+.env
+secret.json
+
+# Databases
+*.db
+*.sqlite3
+
+# IDEs
+.vscode/
+.idea/

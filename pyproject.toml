@@ -9,16 +9,22 @@ dependencies = [
     "ccxt>=4.5.38",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
-    "pandas>=3.0.1",
+    "pandas>=2.2.0,<3.0.0",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.13.0",
     "python-telegram-bot>=22.6",
+    "sqlalchemy[asyncio]>=2.0.38",
+    "aiosqlite>=0.21.0",
+    "tenacity>=9.0.0",
+    "psutil>=6.0.0",
+    "streamlit>=1.42.0",
+    "plotly>=6.0.0",
 ]
 
 [dependency-groups]
 dev = [
     "mypy>=1.19.1",
-    "pandas-stubs>=3.0.0.260204",
+    "pandas-stubs<3.0.0",
     "pytest>=9.0.2",
     "ruff>=0.15.1",
 ]
