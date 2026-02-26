@@ -52,11 +52,18 @@ class ExitManager:
                 if should_sell:
                     logger.warning(f"SEÑAL DE SALIDA para {symbol}: {reason} | PnL: {pnl_pct:+.2f}%")
                     
-                    # Calcular cantidad a vender (basado en el monto original y precio de entrada)
-                    # En un sistema real, fetch_balance sería más seguro
-                    amount_to_sell = trade.amount_usd / trade.entry_price
+                    # 1. Obtener balance real del exchange para evitar errores de InsufficientFunds
+                    # (fees en Binance pueden haber reducido la cantidad comprada originalmente)
+                    balances = await self.exchange_client.get_balance()
+                    token_base = symbol.split('/')[0] if '/' in symbol else symbol
+                    amount_to_sell = balances.get(token_base, 0.0) if balances else 0.0
                     
-                    # 1. Ejecutar venta en el Exchange
+                    if amount_to_sell <= 0:
+                        # Fallback a la estimación de DB
+                        amount_to_sell = trade.amount_usd / trade.entry_price
+                        logger.warning(f"[Exit] {symbol}: No se detectó balance real. Usando estimación DB: {amount_to_sell}")
+
+                    # 2. Ejecutar venta en el Exchange
                     order = await self.exchange_client.create_market_sell_order(symbol, amount_to_sell)
                     
                     if order:

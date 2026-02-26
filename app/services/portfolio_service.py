@@ -1,5 +1,6 @@
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, time, timezone
 from app.models.db_models import Trade, TradeStatus
 from app.infraestructure.database import async_session_factory
 from typing import List, Optional
@@ -69,3 +70,29 @@ class PortfolioService:
                 select(Trade).where(Trade.token_symbol == symbol).limit(1)
             )
             return result.scalar_one_or_none() is not None
+
+    async def get_daily_pnl(self) -> float:
+        """Calcula el PnL total acumulado de todos los trades cerrados hoy."""
+        async with self.session_factory() as session:
+            # Rango de tiempo: desde el inicio del día actual (UTC)
+            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # Buscamos todos los trades cerrados hoy
+            result = await session.execute(
+                select(Trade).where(
+                    and_(
+                        Trade.status == TradeStatus.CLOSED.value,
+                        Trade.updated_at >= today_start
+                    )
+                )
+            )
+            closed_trades = result.scalars().all()
+            
+            total_pnl = 0.0
+            for t in closed_trades:
+                # PnL = (PrecioSalida - PrecioEntrada) * CantidadBase
+                if t.exit_price:
+                    base_amount = t.amount_usd / t.entry_price
+                    total_pnl += (t.exit_price - t.entry_price) * base_amount
+            
+            return total_pnl

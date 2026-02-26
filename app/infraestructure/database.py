@@ -3,7 +3,7 @@ from typing import AsyncGenerator
 from app.models.db_models import Base
 
 # URL de la base de datos SQLite asíncrona
-DATABASE_URL = "sqlite+aiosqlite:///./trading_ai.db"
+DATABASE_URL = "sqlite+aiosqlite:///./trading_v2.db"
 
 # Motor asíncrono
 engine = create_async_engine(DATABASE_URL, echo=False)

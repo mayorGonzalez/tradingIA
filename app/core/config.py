@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     TAKE_PROFIT_PCT: float = 5.0
     STOP_LOSS_PCT: float = -2.0
     
+    # --- Circuit Breaker (Protección de Cartera) ---
+    MAX_DAILY_DRAWDOWN_PCT: float = 5.0  # Parada si la cartera cae un 5% en un día
+    MAX_OPEN_TRADES: int = 5            # Máximo de posiciones simultáneas
+    
     # --- Pesos del Motor de Scoring (Alpha Generation) ---
     # Distribución de relevancia para las tres dimensiones del análisis técnico/on-chain.
     SCORE_WEIGHT_FLOW: float = 0.4          # Importancia del flujo neto (Netflow)

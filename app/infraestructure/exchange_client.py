@@ -1,8 +1,10 @@
 import ccxt.async_support as ccxt
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from app.core.config import settings
 from loguru import logger
 from app.core.utils import retry_async
+
+_exchange_instance: Optional['ExchangeClient'] = None
 
 class ExchangeClient:
     """
@@ -160,3 +162,17 @@ class ExchangeClient:
         except Exception as e:
             logger.error(f"Error al obtener volumen 24h para {symbol}: {e}")
             return None
+
+def get_exchange_client() -> ExchangeClient:
+    """Retorna la instancia única del cliente del exchange (Singleton)."""
+    global _exchange_instance
+    if _exchange_instance is None:
+        _exchange_instance = ExchangeClient()
+    return _exchange_instance
+
+async def close_exchange_client() -> None:
+    """Cierra la conexión global del exchange si existe."""
+    global _exchange_instance
+    if _exchange_instance:
+        await _exchange_instance.close()
+        _exchange_instance = None

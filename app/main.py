@@ -1,17 +1,19 @@
 import asyncio
 import os
 import psutil  # type: ignore
-from typing import Union
+from typing import Union, List
 from loguru import logger
 
 from app.core.config import settings
-from app.models.nansen import NansenResponse
+from app.models.nansen import NansenResponse, SignalResult
 from app.services.nansen_client import NansenClient
 from app.services.nansen_mock import NansenMockClient
+from app.services.nansen_validator import NansenSignalValidator
 from app.services.signal_engine import SignalEngine
 from app.services.notifier import TelegramNotifier
 from app.services.risk_manager import RiskManager
-from app.infraestructure.exchange_client import ExchangeClient
+from app.services.circuit_breaker import CircuitBreaker
+from app.infraestructure.exchange_client import get_exchange_client, close_exchange_client
 from app.infraestructure.database import init_db
 from app.services.portfolio_service import PortfolioService
 from app.services.exit_manager import ExitManager
@@ -24,10 +26,8 @@ async def health_check_task(portfolio: PortfolioService) -> None:
     process = psutil.Process(os.getpid())
     while not shutdown_event.is_set():
         try:
-            # Stats básicas
             open_trades = await portfolio.get_open_trades()
             memory_mb = process.memory_info().rss / (1024 * 1024)
-            
             logger.info(
                 f"📊 HEALTH CHECK | Bot activo | Trades abiertos: {len(open_trades)} | "
                 f"Memoria usada: {memory_mb:.2f} MB"
@@ -35,117 +35,127 @@ async def health_check_task(portfolio: PortfolioService) -> None:
         except Exception as e:
             logger.error(f"Error en health check: {e}")
             
-        # Esperar 1 hora (o hasta que se apague)
         try:
             await asyncio.wait_for(shutdown_event.wait(), timeout=3600)
         except asyncio.TimeoutError:
             continue
 
-
 async def trading_job() -> None:
     logger.info("--- Iniciando Ciclo de Trading Inteligente ---")
     
-    # 1. Inicialización de componentes
+    # 1. Inicialización de componentes (Exchange es Singleton)
+    exchange = get_exchange_client()
+    portfolio = PortfolioService()
+    notifier = TelegramNotifier(token=settings.TELEGRAM_TOKEN, chat_id=settings.TELEGRAM_CHAT_ID)
+    
+    # Servicios de Análisis y Riesgo
     client: Union[NansenMockClient, NansenClient] = (
         NansenMockClient() if settings.DEBUG_MODE else NansenClient()
     )
-    exchange = ExchangeClient()
-    portfolio = PortfolioService()
+    validator = NansenSignalValidator()
     engine = SignalEngine(exchange, portfolio, min_inflow_usd=settings.MIN_INFLOW_LIMIT)
-    risk_manager = RiskManager(max_per_trade_usd=500.0) # Configurable
-    notifier = TelegramNotifier(token=settings.TELEGRAM_TOKEN, chat_id=settings.TELEGRAM_CHAT_ID)
+    risk_manager = RiskManager(max_per_trade_usd=500.0)
+    circuit_breaker = CircuitBreaker()
     exit_manager = ExitManager(portfolio, exchange, notifier)
 
     try:
-        # 1.5 Gestionar salidas de posiciones abiertas
+        # STEP 1: Gestionar salidas de posiciones abiertas (TP/SL)
         await exit_manager.check_open_positions()
 
-        # 2. Obtener datos de Nansen en paralelo (3 fuentes)
-        logger.info("Obteniendo datos de Nansen (netflow + holdings + DEX trades)...")
-        raw_data, holdings, dex_trades = await asyncio.gather(
-            client.get_smart_money_flows(),
-            client.get_smart_money_holdings(),
-            client.get_dex_trades(),
-        )
-
-        # 3. Scoring multidimensional
-        all_candidates = await engine.analyze_flows(
-            flows=raw_data.data,
-            holdings=holdings,
-            dex_trades=dex_trades,
-        )
-        
-        # Filtrar solo las válidas (Score > MIN_SCORE_THRESHOLD)
-        signals = [s for s in all_candidates if s.is_valid]
-
-        if not signals:
-            logger.info("No se detectaron señales operables con puntuación suficiente en este ciclo.")
-            return
-
-        # 3. Consultar balance real o testnet
+        # STEP 2: Obtener balance real para cálculos de riesgo
         balances = await exchange.get_balance()
         usdt_balance = balances.get('USDT', 0.0) if balances else 0.0
         
-        # --- Lógica de TEST FORZADO ---
-        if settings.DEBUG_MODE and all_candidates:
-            logger.info("🛠️ DEBUG_MODE: Forzando ejecución de prueba para el primer candidato...")
-            signals = [all_candidates[0]] # Forzamos la primera señal del mock (BTC)
+        if settings.DEBUG_MODE:
+             usdt_balance = max(usdt_balance, 1000.0) # Simulación de balance para test
+
+        # STEP 3: Circuit Breaker - ¿Es seguro operar hoy?
+        if await circuit_breaker.is_open(portfolio, usdt_balance):
+            logger.warning("🛑 Operaciones bloqueadas por Circuit Breaker (Límite de posiciones o Drawdown).")
+            return
+
+        # STEP 4: Obtener datos de Nansen (Paralelo)
+        logger.info("Obteniendo datos de Nansen...")
+        raw_flows, holdings, dex_trades = await asyncio.gather(
+            client.get_smart_money_flows(),
+            client.get_smart_money_holdings(),
+            client.get_dex_trades(),
+            return_exceptions=True
+        )
+
+        # Manejo de errores en la recolección distribuida
+        if isinstance(raw_flows, Exception):
+            logger.error(f"Error obteniendo flujos: {raw_flows}")
+            return
+
+        # STEP 5: Middleware de Validación y Sanitización
+        clean_flows = validator.validate_flows(raw_flows)
+        if not clean_flows:
+            logger.info("No hay flujos válidos tras la sanitización.")
+            return
+
+        # STEP 6: Motor de Señales (Scoring)
+        all_candidates = await engine.analyze_flows(
+            flows=clean_flows,
+            holdings=holdings if not isinstance(holdings, Exception) else [],
+            dex_trades=dex_trades if not isinstance(dex_trades, Exception) else [],
+        )
+        
+        # Filtrar solo las válidas por Score
+        signals = [s for s in all_candidates if s.is_valid]
+
+        # Inyección de Mock en modo DEBUG si no hay señales reales del mock
+        if settings.DEBUG_MODE and not signals and all_candidates:
+            logger.info("🛠️ DEBUG_MODE: Forzando señal de prueba para el primer candidato del mock.")
+            signals = [all_candidates[0]]
             signals[0].is_valid = True
-            usdt_balance = max(usdt_balance, 100.0) # Asegurar balance ficticio para cálculo de tamaño
-        else:
-            # Filtrar solo las válidas (Score > MIN_SCORE_THRESHOLD)
-            signals = [s for s in all_candidates if s.is_valid]
 
         if not signals:
-            logger.info("No se detectaron señales operables con puntuación suficiente en este ciclo.")
+            logger.info("Sin señales operables en este ciclo.")
             return
 
         for s in signals:
-            # 4. Calcular tamaño de la posición
+            # STEP 7: Risk Manager - Validación de Seguridad por Token
+            if not risk_manager.validate_execution(s, usdt_balance):
+                logger.warning(f"⚠️ {s.token_symbol} rechazado por RiskManager (Filtro de seguridad).")
+                continue
+
+            # STEP 8: Cálculo de Tamaño de Posición
             position_size = risk_manager.calculate_position_size(usdt_balance, s.score)
             
-            # Asegurar mínimo de $10 para exchanges
+            # Ajuste para Testnet (mínimo $10)
             if settings.DEBUG_MODE:
                 position_size = max(position_size, 11.0)
             
-            if position_size > 0:
-                report = (
-                    f"🎯 <b>Señal Detectada: {s.token_symbol}</b>\n"
-                    f"⭐ Score: <b>{s.score}/100</b>\n"
-                    f"💰 Inflow: ${s.net_flow_usd:,.2f}\n"
-                    f"🏦 Balance actual: ${usdt_balance:,.2f}\n"
-                    f"⚖️ Tamaño de orden calculado: <b>${position_size:,.2f}</b>"
-                )
-                logger.success(f"ORDEN CALCULADA: Comprar {s.token_symbol} (Score: {s.score}) con ${position_size}")
-                await notifier.send_alert(report)
+            if position_size >= 10.0:
+                logger.success(f"🚀 EJECUTANDO COMPRA: {s.token_symbol} | Score: {s.score} | Monto: ${position_size}")
                 
-                # Ejecución de compra real
+                # Alerta Pre-Ejecución
+                await notifier.send_alert(f"🎯 <b>Señal Validada: {s.token_symbol}</b>\n⭐ Score: {s.score}/100\n⚖️ Inversión: ${position_size}")
+                
+                # Ejecución en Exchange
                 order = await exchange.create_market_buy_order(s.token_symbol, position_size)
                 
                 if order:
-                    # Guardar en base de datos para seguimiento
+                    # STEP 9: Persistencia y Gestión del Portfolio
                     entry_price = float(order.get('average', order.get('price', 0.0)))
                     if not entry_price:
-                        ticker = await exchange.fetch_ticker(s.token_symbol)
-                        entry_price = ticker if ticker else 0.0
+                        ticker_price = await exchange.fetch_ticker(s.token_symbol)
+                        entry_price = ticker_price if ticker_price else 0.0
                     
-                    logger.info(f"💾 Guardando trade en DB: {s.token_symbol} @ {entry_price}")
                     await portfolio.save_trade(
                         symbol=s.token_symbol,
                         price=entry_price,
                         amount=position_size
                     )
-                    logger.success(f"✅ Trade guardado con éxito.")
+                    logger.success(f"✅ Compra completada y guardada: {s.token_symbol} @ {entry_price}")
                 else:
-                    logger.error(f"❌ La orden de {s.token_symbol} no devolvió datos válidos.")
+                    logger.error(f"❌ Error crítico: La orden de {s.token_symbol} falló en el exchange.")
             else:
-                logger.warning(f"Señal para {s.token_symbol} ignorada por falta de fondos o riesgo alto.")
+                logger.warning(f"Inversión calculada para {s.token_symbol} (${position_size}) es inferior al mínimo.")
 
     except Exception as e:
         logger.error(f"Error crítico en el ciclo de trading: {e}")
-    finally:
-        # Importante cerrar la conexión del exchange cada ciclo si no es persistente
-        await exchange.close()
 
 async def main() -> None:
     logger.info(f"TradingAI activo (DEBUG={settings.DEBUG_MODE})")
@@ -153,10 +163,10 @@ async def main() -> None:
     # Inicializar base de datos
     await init_db()
 
-    # Portfolio service para el health check
+    # Portfolio service para monitoreo
     portfolio = PortfolioService()
 
-    # Iniciar monitor de salud en segundo plano
+    # Iniciar monitor de salud
     health_task = asyncio.create_task(health_check_task(portfolio))
 
     try:
@@ -164,11 +174,10 @@ async def main() -> None:
             try:
                 await trading_job()
             except Exception as e:
-                logger.error(f"Error inesperado en el loop principal: {e}")
+                logger.error(f"Error inesperado en trading_job: {e}")
 
-            logger.info(f"Esperando {settings.POLLING_INTERVAL_MINUTES} minutos para el siguiente ciclo...")
+            logger.info(f"Ciclo terminado. Esperando {settings.POLLING_INTERVAL_MINUTES} min...")
 
-            # Esperar el intervalo o hasta que se pida apagado (Ctrl+C)
             try:
                 await asyncio.wait_for(
                     shutdown_event.wait(),
@@ -177,22 +186,16 @@ async def main() -> None:
             except asyncio.TimeoutError:
                 continue
     except asyncio.CancelledError:
-        # Lanzado cuando el task es cancelado externamente (p.ej. Ctrl+C en Windows)
-        logger.warning("Tarea cancelada. Iniciando apagado seguro...")
+        logger.warning("Apagado iniciado...")
     finally:
-        # Cleanup final — siempre se ejecuta, incluso con Ctrl+C
-        logger.warning("Realizando limpieza final de recursos...")
-        shutdown_event.set()   # Notificar a todas las tareas que deben parar
+        shutdown_event.set()
         health_task.cancel()
-        try:
-            await health_task
-        except asyncio.CancelledError:
-            pass
-        logger.success("Bot detenido correctamente. ¿Hasta pronto!")
+        # Cleanup del Exchange Singleton
+        await close_exchange_client()
+        logger.success("Bot detenido correctamente.")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        # Windows lanza KeyboardInterrupt directamente en lugar de SIGINT
-        logger.warning("Ctrl+C detectado. El bot se ha detenido.")
+        logger.warning("Bot detenido manualmente (Ctrl+C).")
