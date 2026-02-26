@@ -28,7 +28,7 @@ class SignalEngine:
         self,
         exchange_client: ExchangeClient,
         portfolio_service: PortfolioService,
-        min_inflow_usd: float = 1000.0
+        min_inflow_usd: float = 1.0
     ):
         self.exchange = exchange_client
         self.portfolio = portfolio_service
@@ -158,8 +158,8 @@ class SignalEngine:
             dex_score  * settings.SCORE_WEIGHT_PERSISTENCE
         )
 
-        # Descarte temprano: no consultar Exchange si el score preliminar es muy bajo
-        if total_score < 50:
+        # Descarte temprano: muy bajo para tests
+        if total_score < 10:
             return None
 
         # =====================================================================

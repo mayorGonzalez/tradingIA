@@ -90,7 +90,7 @@ class AIAnalyst:
         try:
             # FIX para Windows: Gestionar el loop de asyncio correctamente
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
             except RuntimeError:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)

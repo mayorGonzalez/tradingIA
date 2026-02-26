@@ -82,13 +82,31 @@ async def trading_job() -> None:
             logger.info("No se detectaron señales operables con puntuación suficiente en este ciclo.")
             return
 
-        # 3. Consultar balance real (o testnet)
+        # 3. Consultar balance real o testnet
         balances = await exchange.get_balance()
-        usdt_balance = balances.get('USDT', 1000.0) if balances else 1000.0
+        usdt_balance = balances.get('USDT', 0.0) if balances else 0.0
+        
+        # --- Lógica de TEST FORZADO ---
+        if settings.DEBUG_MODE and all_candidates:
+            logger.info("🛠️ DEBUG_MODE: Forzando ejecución de prueba para el primer candidato...")
+            signals = [all_candidates[0]] # Forzamos la primera señal del mock (BTC)
+            signals[0].is_valid = True
+            usdt_balance = max(usdt_balance, 100.0) # Asegurar balance ficticio para cálculo de tamaño
+        else:
+            # Filtrar solo las válidas (Score > MIN_SCORE_THRESHOLD)
+            signals = [s for s in all_candidates if s.is_valid]
+
+        if not signals:
+            logger.info("No se detectaron señales operables con puntuación suficiente en este ciclo.")
+            return
 
         for s in signals:
             # 4. Calcular tamaño de la posición
-            position_size = risk_manager.calculate_position_size(usdt_balance)
+            position_size = risk_manager.calculate_position_size(usdt_balance, s.score)
+            
+            # Asegurar mínimo de $10 para exchanges
+            if settings.DEBUG_MODE:
+                position_size = max(position_size, 11.0)
             
             if position_size > 0:
                 report = (
@@ -106,12 +124,20 @@ async def trading_job() -> None:
                 
                 if order:
                     # Guardar en base de datos para seguimiento
-                    entry_price = float(order.get('price', 0.0)) or await exchange.fetch_ticker(s.token_symbol) or 0.0
+                    entry_price = float(order.get('average', order.get('price', 0.0)))
+                    if not entry_price:
+                        ticker = await exchange.fetch_ticker(s.token_symbol)
+                        entry_price = ticker if ticker else 0.0
+                    
+                    logger.info(f"💾 Guardando trade en DB: {s.token_symbol} @ {entry_price}")
                     await portfolio.save_trade(
                         symbol=s.token_symbol,
                         price=entry_price,
                         amount=position_size
                     )
+                    logger.success(f"✅ Trade guardado con éxito.")
+                else:
+                    logger.error(f"❌ La orden de {s.token_symbol} no devolvió datos válidos.")
             else:
                 logger.warning(f"Señal para {s.token_symbol} ignorada por falta de fondos o riesgo alto.")
 

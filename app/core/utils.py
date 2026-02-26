@@ -25,7 +25,12 @@ def retry_async(
     return retry(
         stop=stop_after_attempt(max_attempts),
         wait=wait_exponential(multiplier=min_wait, min=min_wait, max=max_wait),
-        retry=retry_if_exception_type((httpx.RequestError, ccxt.NetworkError)),
+        retry=retry_if_exception_type((
+            httpx.RequestError, 
+            httpx.TimeoutException, 
+            httpx.HTTPStatusError, 
+            ccxt.NetworkError
+        )),
         before_sleep=before_sleep_log(logger, "WARNING"),  # type: ignore[arg-type]
         reraise=True
     ) # type: ignore

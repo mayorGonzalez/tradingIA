@@ -4,17 +4,19 @@ from app.models.nansen import (
 )
 from typing import List
 
+from loguru import logger
 
 class NansenMockClient:
     """Simulador de Nansen para testeos sin coste."""
 
     async def get_smart_money_flows(self, chain: str = "ethereum", **kwargs) -> NansenResponse:
+        logger.debug(f"[Nansen MOCK] Generando flujo para {chain}...")
         mock_data = [
             SmartMoneyFlow(
                 chain=chain,
                 token_address="0x123...abc",
-                token_symbol="GOLD_TOKEN",
-                net_flow_usd=50000.0,
+                token_symbol="BTC/USDT",
+                net_flow_24h_usd=50000.0,
                 net_flow_1h_usd=5000.0,
                 net_flow_7d_usd=80000.0,
                 net_flow_30d_usd=200000.0,
@@ -28,7 +30,7 @@ class NansenMockClient:
                 chain=chain,
                 token_address="0x456...def",
                 token_symbol="DUMP_COIN",
-                net_flow_usd=-10000.0,
+                net_flow_24h_usd=-10000.0,
                 trader_count=1,
                 token_age_days=3,
                 labels=["Whale"]
@@ -41,7 +43,7 @@ class NansenMockClient:
             SmartMoneyHolding(
                 chain=chain,
                 token_address="0x123...abc",
-                token_symbol="GOLD_TOKEN",
+                token_symbol="BTC/USDT",
                 value_usd=1_200_000.0,
                 holders_count=12,
                 balance_24h_percent_change=2.5,
@@ -61,7 +63,7 @@ class NansenMockClient:
                 transaction_hash="0xabc123",
                 trader_address="0xfund1",
                 trader_address_label="Fund Alpha",
-                token_bought_symbol="GOLD_TOKEN",
+                token_bought_symbol="BTC/USDT",
                 token_sold_symbol="ETH",
                 token_bought_address="0x123...abc",
                 token_sold_address="0xEEEE",
@@ -75,7 +77,7 @@ class NansenMockClient:
                 transaction_hash="0xdef456",
                 trader_address="0xfund2",
                 trader_address_label="Smart Trader",
-                token_bought_symbol="GOLD_TOKEN",
+                token_bought_symbol="BTC/USDT",
                 token_sold_symbol="USDC",
                 token_bought_address="0x123...abc",
                 token_sold_address="0xUSDC",

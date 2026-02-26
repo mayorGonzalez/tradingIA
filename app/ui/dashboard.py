@@ -1,261 +1,97 @@
-import sys
-from pathlib import Path
-
-# Añadimos la raíz del proyecto al PATH de Python
-root_path = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(root_path))
-
-import streamlit as st  # type: ignore
-import pandas as pd  # type: ignore
-import plotly.express as px  # type: ignore
+import streamlit as st
 import asyncio
-from datetime import datetime
-from typing import List, Union, Any
-
-from app.core.config import settings
-from app.services.portfolio_service import PortfolioService
-from app.infraestructure.exchange_client import ExchangeClient
-from app.services.nansen_client import NansenClient
-from app.services.nansen_mock import NansenMockClient
+from loguru import logger
 from app.services.ai_analyst import AIAnalyst
-from app.models.db_models import Trade, TradeStatus
+from app.core.config import settings
 
-# ─────────────────────────────────────────────
-# CONFIGURACIÓN DE PÁGINA
-# ─────────────────────────────────────────────
+# Configuración de página con estética Premium
 st.set_page_config(
-    page_title="tradingAI Dashboard",
+    page_title="TradingAI Dashboard",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# Estilo personalizado (CSS Inyectado)
 st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background-color: #0a0d14; }
-
-    /* Chat container */
-    .chat-wrapper {
-        background: linear-gradient(135deg, #0e1421 0%, #121828 100%);
-        border: 1px solid #1e2d45;
-        border-radius: 16px;
-        padding: 20px;
-        margin-top: 8px;
+<style>
+    .main {
+        background-color: #0e1117;
     }
-
-    /* Burbujas de mensaje */
-    .msg-user {
-        background: linear-gradient(135deg, #1a3a5c, #1e4976);
-        border-radius: 12px 12px 2px 12px;
-        padding: 12px 16px;
-        margin: 8px 0 8px 50px;
-        color: #ffffff;
-        font-size: 0.92rem;
-        border-left: 3px solid #00aaff;
+    .stChatFloatingInputContainer {
+        bottom: 20px;
     }
-    .msg-assistant {
-        background: linear-gradient(135deg, #111827, #1a2235);
-        border-radius: 12px 12px 12px 2px;
-        padding: 12px 16px;
-        margin: 8px 50px 8px 0;
-        color: #d1d5db;
-        font-size: 0.92rem;
-        border-left: 3px solid #00ff9d;
+    .reportview-container .main .block-container {
+        padding-top: 2rem;
     }
-    .msg-label-user {
-        font-size: 0.7rem; color: #4a90d9; font-weight: 600;
-        margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em;
+    h1 {
+        color: #00d4ff;
+        font-family: 'Inter', sans-serif;
+        font-weight: 800;
     }
-    .msg-label-bot {
-        font-size: 0.7rem; color: #00cc7a; font-weight: 600;
-        margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em;
-    }
-
-    /* Métricas */
-    [data-testid="metric-container"] {
-        background: #0f1724;
-        border: 1px solid #1e2d45;
+    .stMetric {
+        background: rgba(255, 255, 255, 0.05);
+        padding: 15px;
         border-radius: 10px;
-        padding: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
     }
-
-    .status-online { color: #00ff9d; font-weight: bold; font-size: 0.9rem; }
-    .status-offline { color: #ff4b6e; font-weight: bold; font-size: 0.9rem; }
-    </style>
+</style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────
-def run_async(coro: Any) -> Any:
-    return asyncio.run(coro)
+def main():
+    st.title("🚀 TradingAI Intelligence")
+    
+    # Sidebar con estado del bot
+    with st.sidebar:
+        st.header("⚙️ Configuración")
+        st.status("Bot Online", state="running" if not settings.DEBUG_MODE else "error")
+        st.divider()
+        st.metric("Min Inflow Limit", f"${settings.MIN_INFLOW_LIMIT:,.0f}")
+        st.metric("Target ROI", f"{settings.TAKE_PROFIT_PCT}%")
+        st.metric("Stop Loss", f"{settings.STOP_LOSS_PCT}%")
+        
+        if st.button("🔄 Refrescar Datos"):
+            st.rerun()
 
-@st.cache_resource
-def get_services() -> tuple:
-    portfolio = PortfolioService()
-    exchange = ExchangeClient()
-    nansen = NansenMockClient() if settings.DEBUG_MODE else NansenClient()
-    analyst = AIAnalyst()
-    return portfolio, exchange, nansen, analyst
+    # Layout Principal: Chat y Monitor
+    col_chat, col_monitor = st.columns([2, 1])
 
-portfolio_service, exchange_client, nansen_client, ai_analyst = get_services()
+    with col_chat:
+        st.subheader("💬 AI Market Analyst")
+        
+        # Inicializar historial de chat
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
 
+        # Mostrar mensajes previos
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-# ─────────────────────────────────────────────
-# DATOS DE TABS
-# ─────────────────────────────────────────────
-async def load_nansen_data() -> pd.DataFrame:
-    raw = await nansen_client.get_smart_money_flows()
-    rows = []
-    for f in raw.data:
-        rows.append({
-            "Token": f.token_symbol,
-            "Netflow 24h ($)": f.net_flow_usd,
-            "Netflow 7d ($)": f.net_flow_7d_usd,
-            "Traders": f.trader_count,
-            "Mcap ($)": f.market_cap_usd or 0,
-            "Edad (días)": f.token_age_days or 0,
-            "Sectores": ", ".join(f.token_sectors) if f.token_sectors else "-",
-        })
-    df = pd.DataFrame(rows)
-    return df.sort_values("Netflow 24h ($)", ascending=False)
+        # Input de chat
+        if prompt := st.chat_input("Pregúntame sobre el mercado o Smart Money..."):
+            # Mostrar mensaje del usuario
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
+            # Generar respuesta de la IA
+            with st.chat_message("assistant"):
+                with st.spinner("Analizando datos on-chain..."):
+                    analyst = AIAnalyst()
+                    # Usamos el método ask_question que ya maneja el loop de asyncio para Streamlit
+                    response = analyst.ask_question(prompt, st.session_state.messages)
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
 
-async def load_history() -> pd.DataFrame:
-    trades = await portfolio_service.get_all_trades()
-    return pd.DataFrame([{
-        "Fecha": t.created_at.strftime("%Y-%m-%d %H:%M"),
-        "Symbol": t.token_symbol,
-        "Entry": f"${t.entry_price:,.4f}",
-        "Exit": f"${t.exit_price:,.4f}" if t.exit_price else "-",
-        "Status": "🟢 OPEN" if t.status == "OPEN" else "🔴 CLOSED",
-        "Capital": f"${t.amount_usd:,.2f}"
-    } for t in trades])
+    with col_monitor:
+        st.subheader("📊 Live Monitor")
+        # Aquí podrían ir tablas de Nansen o posiciones abiertas
+        st.info("Conectando con Nansen API...")
+        
+        # Simulación de monitor (en v2.0 traeremos datos reales aquí)
+        st.markdown("### 🔍 Top Smart Money Inflows")
+        st.code("Cargando flujos de Ethereum...", language="text")
 
-
-# ─────────────────────────────────────────────
-# SIDEBAR
-# ─────────────────────────────────────────────
-with st.sidebar:
-    st.title("🤖 tradingAI Control")
-    st.markdown(
-        f"Estado: <span class='status-online'>● ONLINE</span>" if not settings.DEBUG_MODE
-        else "Estado: <span class='status-offline'>● DEBUG MODE</span>",
-        unsafe_allow_html=True
-    )
-    st.markdown(f"Modelo IA: `{settings.GEMINI_MODEL}`")
-    st.divider()
-
-    st.subheader("🏦 Wallet")
-    try:
-        balance = run_async(exchange_client.get_balance())
-        usdt_val = balance.get('USDT', 0.0) if balance else 0.0
-        st.metric("Balance USDT", f"${usdt_val:,.2f}")
-    except Exception:
-        st.metric("Balance USDT", "N/A")
-
-    st.divider()
-    st.subheader("⚙️ Config")
-    st.caption(f"Min inflow: ${settings.MIN_INFLOW_LIMIT:,.0f}")
-    st.caption(f"Score umbral: {settings.MIN_SCORE_THRESHOLD}")
-    st.caption(f"Take Profit: +{settings.TAKE_PROFIT_PCT}%")
-    st.caption(f"Stop Loss: {settings.STOP_LOSS_PCT}%")
-
-    st.divider()
-    if st.button("🔄 Limpiar Chat", width='stretch'):
-        st.session_state.chat_history = []
-        st.rerun()
-
-# ─────────────────────────────────────────────
-# MAIN ─ TABS
-# ─────────────────────────────────────────────
-tab_nansen, tab_historial = st.tabs(["📊 Smart Money Flows", "📜 Historial Trades"])
-
-with tab_nansen:
-    st.subheader("Top Smart Money Flows (Ethereum · 24h)")
-    with st.spinner("Cargando datos Nansen..."):
-        nansen_df = run_async(load_nansen_data())
-
-    if not nansen_df.empty:
-        col1, col2, col3 = st.columns(3)
-        positives = nansen_df[nansen_df["Netflow 24h ($)"] > 0]
-        col1.metric("🚀 Tokens con inflow", len(positives))
-        col2.metric("📉 Con outflow", len(nansen_df) - len(positives))
-        col3.metric("💰 Mayor inflow", f"${nansen_df['Netflow 24h ($)'].max():,.0f}")
-
-        fig = px.bar(
-            nansen_df.head(12),
-            x="Token", y="Netflow 24h ($)",
-            color="Netflow 24h ($)",
-            color_continuous_scale=["#ff4b6e", "#1a1a2e", "#00ff9d"],
-            color_continuous_midpoint=0,
-            title="Netflow por Token — Smart Money (24h)",
-            template="plotly_dark",
-            height=380,
-        )
-        fig.update_layout(
-            paper_bgcolor="#0a0d14",
-            plot_bgcolor="#0a0d14",
-            showlegend=False,
-        )
-        st.plotly_chart(fig, width='stretch')
-        st.dataframe(nansen_df, width='stretch', hide_index=True)
-    else:
-        st.warning("Sin datos de Nansen disponibles.")
-
-with tab_historial:
-    st.subheader("Historial de Operaciones")
-    df_history = run_async(load_history())
-    if not df_history.empty:
-        st.dataframe(df_history, width='stretch', hide_index=True)
-    else:
-        st.info("No hay operaciones registradas todavía.")
-
-# ─────────────────────────────────────────────
-# SECCIÓN DE CHAT TIPO GEMINI
-# ─────────────────────────────────────────────
-st.divider()
-st.subheader("💬 Consulta a tu Agente IA")
-st.caption(
-    f"Responde con datos reales de Nansen y tu cartera. "
-    f"Modelo: **{settings.GEMINI_MODEL}** (Zhipu AI)"
-)
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Mostrar historial completo con los componentes nativos de Streamlit
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# Input de chat fijado al fondo de la pantalla
-if prompt := st.chat_input("¿Qué quieres saber sobre el mercado o tus trades?"):
-
-    # Mostrar la pregunta del usuario inmediatamente
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # Obtener y mostrar la respuesta del analista
-    with st.chat_message("assistant"):
-        analyst = AIAnalyst()
-        with st.spinner("Analizando datos on-chain..."):
-            # Pasamos el historial para que gemini mantenga el contexto de la conversación
-            response = analyst.ask_question(
-                prompt=prompt,
-                history=st.session_state.messages[:-1],  # Todo menos el mensaje actual
-            )
-        st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "content": response})
-
-# ─────────────────────────────────────────────
-# PIE DE PÁGINA
-# ─────────────────────────────────────────────
-st.caption(
-    f"Última actualización: {datetime.now().strftime('%H:%M:%S')} · "
-    f"tradingAI v2.0 · Smart Money Engine"
-)
+if __name__ == "__main__":
+    main()

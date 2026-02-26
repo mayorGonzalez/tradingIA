@@ -13,7 +13,13 @@ wheels/
 
 # Environment variables and sensitive data
 .env
+.env.local
 secret.json
+
+# Logs
+*.log
+scripts/debug/
+scripts/test_assets/
 
 # Databases
 *.db
@@ -22,4 +28,6 @@ secret.json
 # IDEs
 .vscode/
 .idea/
-.env
+.gemini/
+.claude/
+.agents/
