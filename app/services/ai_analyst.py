@@ -1,19 +1,17 @@
 """
-AIAnalyst — Asistente de Mercado con GEMINI (v1beta OpenAI Compatible)
-====================================================================
-Refactorizado para compatibilidad con Google Cloud y estabilidad en Windows.
+AIAnalyst — Asistente de Mercado con soporte Ollama y Gemini
+================================================================
+Refactorizado para compatibilidad múltiple de proveedores LLM.
 """
 
 import asyncio
-import httpx
 import json
 from loguru import logger
-from typing import List, Dict, AsyncIterator, TYPE_CHECKING
-from abc import ABC, abstractmethod
+from typing import List, Dict, TYPE_CHECKING
 
 from app.core.config import settings
+from app.services.llm_provider import OllamaProvider, GeminiProvider
 
-# Imports lazy para evitar ciclos y mejorar tiempo de arranque
 if TYPE_CHECKING:
     from app.services.nansen_client import NansenClient
     from app.services.portfolio_service import PortfolioService
@@ -39,53 +37,29 @@ SYSTEM_PROMPT_TEMPLATE = """Eres TradingAI-Agent, un experto en Finanzas Cuantit
 - Si un usuario pregunta por un token ausente: 'No tengo datos on-chain suficientes para emitir un juicio institucional'.
 - Prioriza siempre la preservación del capital sobre las ganancias rápidas.
 """
-class LLMProvider(ABC):
-    @abstractmethod
-    async def chat(self, user_message: str, messages: List[Dict[str, str]]) -> str:
-        pass
-    
-class GoogleGeminiProvider(LLMProvider):
-    def __init__(self, api_key: str, base_url: str, model: str):
-        self.api_key = api_key
-        self.base_url = base_url.rstrip('/')
-        self.model = model
 
-class OllamaProvider(LLMProvider):
-    def __init__(self, base_url: str, model: str):
-        self.base_url = base_url.rstrip('/')
-        self.model = model
-    
-    async def chat(self, user_message: str, messages: List[Dict[str, str]]) -> str:
-        url = f"{self.base_url}/api/chat"
-        payload = {
-            "model": self.model,
-            "messages": messages + [{"role": "user", "content": user_message}],
-            "stream": False,
-        }
-        
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(url, json=payload)
-            if response.status_code != 200:
-                logger.error(f"Ollama error: {response.text}")
-                return "❌ Error conectando con LLM local"
-            
-            return response.json()["message"]["content"] 
 
 class AIAnalyst:
-    """Servicio de análisis de mercado powered by GEMINI via Google Cloud."""
+    """Servicio de análisis de mercado con soporte múltiple de LLM."""
 
     def __init__(self) -> None:
         provider_type = settings.LLM_PROVIDER
         
         if provider_type == "local":
-            from app.services.llm_provider import OllamaProvider
             self.provider = OllamaProvider(
                 settings.LLM_BASE_URL,
                 settings.LLM_MODEL
             )
+            logger.info(f"✓ LLM Local: {settings.LLM_MODEL} en {settings.LLM_BASE_URL}")
+        elif provider_type == "gemini":
+            self.provider = GeminiProvider(
+                settings.GEMINI_API_KEY,
+                settings.GEMINI_BASE_URL,
+                settings.GEMINI_MODEL
+            )
+            logger.info(f"✓ Gemini: {settings.GEMINI_MODEL}")
         else:
-            from app.services.llm_provider import GeminiProvider
-            self.provider = GeminiProvider()  # Código actual
+            raise ValueError(f"LLM_PROVIDER desconocido: {provider_type}. Usa 'local' o 'gemini'")
 
     def _build_system_prompt(self, nansen_ctx: str, trades_ctx: str, signals_ctx: str) -> str:
         return SYSTEM_PROMPT_TEMPLATE.format(
@@ -100,33 +74,12 @@ class AIAnalyst:
         system_prompt = self._build_system_prompt(nansen_ctx, trades_ctx, signals_ctx)
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history[-10:])
-        messages.append({"role": "user", "content": user_message})
 
-        url = f"{self.base_url}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.4,
-            "max_tokens": 1024,
-        }
-
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            if response.status_code != 200:
-                logger.error(f"[AIAnalyst] Error {response.status_code}: {response.text}")
-                return f"❌ Error de API ({response.status_code}). Verifica el saldo y el nombre del modelo."
-            
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+        return await self.provider.chat(user_message, messages)
 
     def ask_question(self, prompt: str, history: List[Dict[str, str]] | None = None) -> str:
         """Punto de entrada síncrono para Streamlit con gestión de loop segura."""
         try:
-            # FIX para Windows: Gestionar el loop de asyncio correctamente
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
@@ -151,7 +104,6 @@ class AIAnalyst:
         portfolio = PortfolioService()
 
         try:
-            # Ejecución paralela para minimizar latencia
             results = await asyncio.gather(
                 nansen.get_smart_money_flows(),
                 portfolio.get_open_trades(),
@@ -161,15 +113,14 @@ class AIAnalyst:
             raw_flows = results[0] if not isinstance(results[0], Exception) else None
             open_trades = results[1] if not isinstance(results[1], Exception) else []
 
-            # Formatear Nansen
             n_lines = []
             if raw_flows and hasattr(raw_flows, 'data'):
                 for f in raw_flows.data[:8]:
                     n_lines.append(f"• {f.token_symbol}: Netflow 24h=${f.net_flow_usd:,.0f} | Traders: {f.trader_count}")
             
-            # Formatear Trades
             t_lines = [f"• {t.token_symbol}: Entrada ${t.entry_price} | ROI actual: {getattr(t, 'pnl_pct', 0)}%" for t in open_trades]
 
             return "\n".join(n_lines) or "Sin datos", "\n".join(t_lines) or "Sin posiciones"
         except Exception as e:
+            logger.error(f"Error fetching context: {e}")
             return f"Error de datos: {e}", "Error de datos"

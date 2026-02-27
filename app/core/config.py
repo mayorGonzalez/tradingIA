@@ -22,15 +22,15 @@ class Settings(BaseSettings):
 
     # --- Configuración de IA (Analista de Mercado) ---
     # Point de integración con el modelo de lenguaje para análisis cualitativos.
-    # GEMINI_API_KEY: SecretStr = SecretStr("dummy_gemini_key")
-    # GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
-    # GEMINI_MODEL: str = "gemini-2.0-flash" 
+    GEMINI_API_KEY: SecretStr = SecretStr("dummy_gemini_key")
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    GEMINI_MODEL: str = "gemini-2.0-flash" 
     
     # --- Configuración de LLM Local ---
     LLM_PROVIDER: str = Field(default="local")  # "local" o "gemini"
     LLM_BASE_URL: str = "http://localhost:11434"
     LLM_MODEL: str = "qwen2.5-coder:3b"
-    
+
     # --- Parámetros de Operación (Lifecycle) ---
     # Controla la frecuencia del bucle principal de escaneo de Smart Money.
     POLLING_INTERVAL_MINUTES: int = 15
