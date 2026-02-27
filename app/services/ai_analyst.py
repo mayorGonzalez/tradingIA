@@ -9,6 +9,7 @@ import httpx
 import json
 from loguru import logger
 from typing import List, Dict, AsyncIterator, TYPE_CHECKING
+from abc import ABC, abstractmethod
 
 from app.core.config import settings
 
@@ -38,16 +39,53 @@ SYSTEM_PROMPT_TEMPLATE = """Eres TradingAI-Agent, un experto en Finanzas Cuantit
 - Si un usuario pregunta por un token ausente: 'No tengo datos on-chain suficientes para emitir un juicio institucional'.
 - Prioriza siempre la preservación del capital sobre las ganancias rápidas.
 """
+class LLMProvider(ABC):
+    @abstractmethod
+    async def chat(self, user_message: str, messages: List[Dict[str, str]]) -> str:
+        pass
+    
+class GoogleGeminiProvider(LLMProvider):
+    def __init__(self, api_key: str, base_url: str, model: str):
+        self.api_key = api_key
+        self.base_url = base_url.rstrip('/')
+        self.model = model
+
+class OllamaProvider(LLMProvider):
+    def __init__(self, base_url: str, model: str):
+        self.base_url = base_url.rstrip('/')
+        self.model = model
+    
+    async def chat(self, user_message: str, messages: List[Dict[str, str]]) -> str:
+        url = f"{self.base_url}/api/chat"
+        payload = {
+            "model": self.model,
+            "messages": messages + [{"role": "user", "content": user_message}],
+            "stream": False,
+        }
+        
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(url, json=payload)
+            if response.status_code != 200:
+                logger.error(f"Ollama error: {response.text}")
+                return "❌ Error conectando con LLM local"
+            
+            return response.json()["message"]["content"] 
 
 class AIAnalyst:
     """Servicio de análisis de mercado powered by GEMINI via Google Cloud."""
 
     def __init__(self) -> None:
-        self.api_key = settings.GEMINI_API_KEY.get_secret_value()
-        self.base_url = settings.GEMINI_BASE_URL.rstrip('/')
-        # FIX: Google requiere prefijo 'models/' para el endpoint de OpenAI
-        model_name = settings.GEMINI_MODEL
-        self.model = f"models/{model_name}" if not model_name.startswith("models/") else model_name
+        provider_type = settings.LLM_PROVIDER
+        
+        if provider_type == "local":
+            from app.services.llm_provider import OllamaProvider
+            self.provider = OllamaProvider(
+                settings.LLM_BASE_URL,
+                settings.LLM_MODEL
+            )
+        else:
+            from app.services.llm_provider import GeminiProvider
+            self.provider = GeminiProvider()  # Código actual
 
     def _build_system_prompt(self, nansen_ctx: str, trades_ctx: str, signals_ctx: str) -> str:
         return SYSTEM_PROMPT_TEMPLATE.format(

@@ -11,7 +11,7 @@ class CircuitBreaker:
     Si el drawdown diario o el límite de posiciones se alcanza, bloquea nuevas aperturas.
     """
     def __init__(self, max_daily_drawdown_pct: float = None, max_open_trades: int = None):
-        self.max_daily_drawdown_pct = max_daily_drawdown_pct or settings.MAX_DAILY_DRAWDOWN_PCT
+        self.max_daily_drawdown_pct = max_daily_drawdown_pct if max_daily_drawdown_pct is not None else settings.MAX_DAILY_DRAWDOWN_PCT
         self.max_open_trades = max_open_trades or settings.MAX_OPEN_TRADES
 
     async def is_open(self, portfolio: PortfolioService, current_balance_usd: float) -> bool:

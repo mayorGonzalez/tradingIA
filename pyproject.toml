@@ -19,6 +19,7 @@ dependencies = [
     "psutil>=6.0.0",
     "streamlit>=1.42.0",
     "plotly>=6.0.0",
+    "ollama>=0.2.0", 
 ]
 
 [dependency-groups]
