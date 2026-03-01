@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  # Base de datos PostgreSQL para persistencia de trades
+  postgres:
+    image: postgres:16-alpine
+    container_name: tradingía-postgres
+    environment:
+      POSTGRES_USER: trading_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-trading_secure_pass_change_me}
+      POSTGRES_DB: tradingía_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - trading_network
+    restart: unless-stopped
+
+  # Ollama LLM local
+  ollama:
+    image: ollama/ollama:latest
+    container_name: tradingía-ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      # Usa GPU si está disponible (CUDA)
+      # CUDA_VISIBLE_DEVICES: 0
+      # Para CPU puro, déjalo vacío
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - trading_network
+    restart: unless-stopped
+    # Descargar modelo al iniciar
+    entrypoint: /bin/sh -c "ollama pull ${LLM_MODEL:-qwen2.5-coder:3b} && ollama serve"
+
+  # Aplicación TradingIA
+  trading_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tradingía-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      # Base de datos
+      DATABASE_URL: postgresql://trading_user:${DB_PASSWORD:-trading_secure_pass_change_me}@postgres:5432/tradingía_db
+      
+      # LLM Configuration
+      LLM_PROVIDER: ${LLM_PROVIDER:-local}
+      LLM_BASE_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5-coder:3b}
+      
+      # Gemini (fallback)
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-dummy_key}
+      GEMINI_BASE_URL: https://generativelanguage.googleapis.com/v1beta/openai
+      GEMINI_MODEL: gemini-2.0-flash
+      
+      # Nansen
+      NANSEN_API_KEY: ${NANSEN_API_KEY:-dummy_key}
+      NANSEN_BASE_URL: https://api.nansen.ai/api/v1
+      
+      # Exchange (Binance/MEXC)
+      BINANCE_API_KEY: ${BINANCE_API_KEY:-}
+      BINANCE_SECRET: ${BINANCE_SECRET:-}
+      MEXC_API_KEY: ${MEXC_API_KEY:-}
+      MEXC_SECRET: ${MEXC_SECRET:-}
+      
+      # Comportamiento
+      DEBUG_MODE: ${DEBUG_MODE:-true}
+      POLLING_INTERVAL_MINUTES: ${POLLING_INTERVAL_MINUTES:-15}
+      MIN_INFLOW_LIMIT: ${MIN_INFLOW_LIMIT:-100000}
+      
+      # Riesgo
+      TAKE_PROFIT_PCT: ${TAKE_PROFIT_PCT:-5.0}
+      STOP_LOSS_PCT: ${STOP_LOSS_PCT:--2.0}
+      MAX_DAILY_DRAWDOWN_PCT: ${MAX_DAILY_DRAWDOWN_PCT:-5.0}
+      MAX_OPEN_TRADES: ${MAX_OPEN_TRADES:-5}
+      
+      # Notificaciones
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      
+      # Python
+      PYTHONUNBUFFERED: 1
+      PYTHONDONTWRITEBYTECODE: 1
+    
+    ports:
+      - "8501:8501"  # Streamlit Dashboard
+      - "8000:8000"  # API (si la añades)
+    
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+      - trading_cache:/home/trader/.cache
+    
+    networks:
+      - trading_network
+    
+    restart: unless-stopped
+    
+    # Solo si ejecutas el dashboard
+    command: streamlit run app/ui/dashboard.py --server.port=8501 --server.address=0.0.0.0
+    
+    # Descomentar si prefieres ejecutar el bot principal
+    # command: python -m app.main
+
+  # (Opcional) Redis para caching y session
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: tradingía-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - trading_network
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
+  ollama_data:
+  trading_cache:
+
+networks:
+  trading_network:
+    driver: bridge

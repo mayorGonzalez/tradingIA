@@ -1,0 +1,61 @@
+version: '3.8'
+
+# Este archivo se combina automáticamente con docker-compose.yml en desarrollo
+# Uso: docker-compose -f docker-compose.yml -f docker-compose.override.yml up
+
+services:
+  trading_app:
+    # Hot reload del código
+    volumes:
+      - ./app:/app/app:rw
+      - ./scripts:/app/scripts:rw
+      - ./logs:/app/logs:rw
+      - trading_cache:/home/trader/.cache
+    
+    # Exponer puertos adicionales para debugging
+    ports:
+      - "8501:8501"  # Streamlit
+      - "6006:6006"  # Tensorboard (opcional)
+      - "5678:5678"  # Debugpy (opcional)
+    
+    # Variables para desarrollo
+    environment:
+      DEBUG_MODE: "true"
+      LOG_LEVEL: "DEBUG"
+      PYTHONDONTWRITEBYTECODE: "0"  # Permite .pyc en desarrollo
+    
+    # Entrypoint modificado para permitir edición de código
+    stdin_open: true
+    tty: true
+    
+    # Reiniciar automáticamente al cambiar código
+    command: >
+      sh -c "pip install -e . --break-system-packages &&
+             streamlit run app/ui/dashboard.py 
+             --server.port=8501 
+             --server.address=0.0.0.0 
+             --server.fileWatcherType=poll"
+
+  # PostgreSQL con datos que persisten
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    
+    # Exponer puerto para IDE
+    ports:
+      - "5432:5432"
+
+  # Ollama con acceso a GPU (si está disponible)
+  ollama:
+    # Descomenta para GPU NVIDIA
+    # runtime: nvidia
+    # environment:
+    #   NVIDIA_VISIBLE_DEVICES: all
+    
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./models:/models:rw  # Modelos locales
+    
+    ports:
+      - "11434:11434"
