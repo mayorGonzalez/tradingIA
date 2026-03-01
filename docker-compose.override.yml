@@ -1,4 +1,4 @@
-version: '3.8'
+# version: '3.8'
 
 # Este archivo se combina automáticamente con docker-compose.yml en desarrollo
 # Uso: docker-compose -f docker-compose.yml -f docker-compose.override.yml up
