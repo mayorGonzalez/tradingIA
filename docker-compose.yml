@@ -31,10 +31,10 @@ services:
       - "11434:11434"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 30s
+      interval: 20s
       timeout: 10s
-      retries: 10
-      start_period: 60s
+      retries: 15
+      start_period: 300s
     networks:
       - trading_network
     restart: unless-stopped
