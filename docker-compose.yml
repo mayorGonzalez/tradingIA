@@ -3,11 +3,11 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: tradingía-postgres
+    container_name: tradingia-postgres
     environment:
       POSTGRES_USER: trading_user
       POSTGRES_PASSWORD: ${DB_PASSWORD:-trading_secure_pass_change_me}
-      POSTGRES_DB: tradingía_db
+      POSTGRES_DB: tradingia_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
@@ -24,7 +24,7 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    container_name: tradingía-ollama
+    container_name: tradingia-ollama
     volumes:
       - ollama_data:/root/.ollama
     ports:
@@ -43,14 +43,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: tradingía-app
+    container_name: tradingia-app
     depends_on:
       postgres:
         condition: service_healthy
       ollama:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://trading_user:${DB_PASSWORD:-trading_secure_pass_change_me}@postgres:5432/tradingía_db
+      DATABASE_URL: postgresql://trading_user:${DB_PASSWORD:-trading_secure_pass_change_me}@postgres:5432/tradingia_db
       LLM_PROVIDER: ${LLM_PROVIDER:-local}
       LLM_BASE_URL: http://ollama:11434
       LLM_MODEL: ${LLM_MODEL:-qwen2.5-coder:3b}
