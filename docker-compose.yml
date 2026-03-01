@@ -30,11 +30,11 @@ services:
     ports:
       - "11434:11434"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 20s
-      timeout: 10s
-      retries: 15
-      start_period: 300s
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - trading_network
     restart: unless-stopped
