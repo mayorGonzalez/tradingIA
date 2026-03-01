@@ -38,8 +38,11 @@ services:
     networks:
       - trading_network
     restart: unless-stopped
-    entrypoint: /bin/sh -c "ollama pull ${LLM_MODEL:-qwen2.5-coder:3b} && ollama serve"
-
+    entrypoint: 
+      - "/bin/sh"
+      - "-c"
+      - "ollama serve & sleep 5 && ollama pull qwen2.5-coder:3b && wait"
+    
   trading_app:
     build:
       context: .
