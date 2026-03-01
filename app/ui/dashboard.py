@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from loguru import logger
+import asyncio
 
 from app.services.ai_analyst import AIAnalyst
 from app.services.portfolio_service import PortfolioService
@@ -163,8 +164,8 @@ with tab3:
     
     try:
         portfolio = PortfolioService()
-        trades = portfolio.get_open_trades()
-        
+        trades = asyncio.run(portfolio.get_open_trades())
+
         if trades:
             data = []
             for trade in trades:

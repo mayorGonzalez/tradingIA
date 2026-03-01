@@ -29,7 +29,7 @@ class PortfolioService:
     
     def __init__(self):
         #self.session_factory = async_session_factory
-         # Mock: Simular trades abiertos
+        # Mock: Simular trades abiertos
         self.mock_trades: List[Trade] = []
         logger.info("✓ PortfolioService initializado")
 

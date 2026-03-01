@@ -105,9 +105,9 @@ class ExchangeClient:
                     'symbol': formatted_symbol,
                     'type': 'market',
                     'side': 'buy',
-                    'amount': amount_usd, # En test simulamos que el precio es 1 por simplicidad
-                    'price': 1.0,
-                    'average': 1.0,
+                    'amount': amount_usd / mock_price,  # ← CORREGIDO: cantidad de tokens
+                    'price': mock_price,
+                    'average': mock_price,
                     'status': 'closed'
                 }
 
