@@ -44,3 +44,6 @@ module = [
     "ccxt.*"
 ]
 ignore_missing_imports = true
+
+[tool.setuptools.packages.find]
+include = ["app*"]  
