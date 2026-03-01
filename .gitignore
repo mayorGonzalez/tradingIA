@@ -31,3 +31,8 @@ scripts/test_assets/
 .gemini/
 .claude/
 .agents/
+.env
+.env.local
+.env.*.local
+.env.docker
+.env.docker
