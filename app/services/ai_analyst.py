@@ -83,12 +83,12 @@ class AIAnalyst:
                 clean_history.append(msg)
 
         messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(clean_history)
+        messages.extend(history[-10:])
 
         logger.info(f"[AIAnalyst] Enviando prompt al LLM ({len(messages)} mensajes en historial)")
         return await self.provider.chat(user_message, messages)
 
-    async def _handle_commands(self, user_prompt: str) -> str | None:
+    def _handle_commands(self, user_prompt: str) -> str | None:
         """Procesa comandos especiales del chat para controlar el bot (Chat Ops)."""
         prompt = user_prompt.strip()
         
@@ -118,10 +118,10 @@ class AIAnalyst:
                 exchange = get_exchange_client()
                 portfolio = PortfolioService()
                 
-                order = await exchange.create_market_buy_order(symbol, amount_usd)
+                order = exchange.create_market_buy_order(symbol, amount_usd)
                 if order:
                     entry_price = float(order.get('average', order.get('price', 0.0))) or 1.0
-                    await portfolio.save_trade(symbol, entry_price, amount_usd)
+                    portfolio.save_trade(symbol, entry_price, amount_usd)
                     return f"✅ **OPERACIÓN EXITOSA**: Se ha ejecutado una compra de **{symbol}** por **${amount_usd} USDT**."
                 return f"❌ **ERROR EXCHANGE**: La orden de {symbol} no pudo completarse."
             except Exception as e:

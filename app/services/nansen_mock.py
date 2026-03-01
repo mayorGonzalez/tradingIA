@@ -15,7 +15,7 @@ class NansenMockClient:
             SmartMoneyFlow(
                 chain=chain,
                 token_address="0x123...abc",
-                token_symbol="BTC", # Solo el símbolo
+                token_symbol="BTC/USDT", # Solo el símbolo
                 net_flow_24h_usd=50000.0,
                 net_flow_1h_usd=5000.0,
                 net_flow_7d_usd=80000.0,
@@ -43,7 +43,7 @@ class NansenMockClient:
             SmartMoneyHolding(
                 chain=chain,
                 token_address="0x123...abc",
-                token_symbol="BTC",
+                token_symbol="BTC/USDT",
                 value_usd=1_200_000.0,
                 holders_count=12,
                 balance_24h_percent_change=2.5,
@@ -63,8 +63,8 @@ class NansenMockClient:
                 transaction_hash="0xabc123",
                 trader_address="0xfund1",
                 trader_address_label="Fund Alpha",
-                token_bought_symbol="BTC",
-                token_sold_symbol="ETH",
+                token_bought_symbol="BTC/USDT",
+                token_sold_symbol="ETH/USDT",
                 token_bought_address="0x123...abc",
                 token_sold_address="0xEEEE",
                 trade_value_usd=15_000.0,
@@ -77,8 +77,8 @@ class NansenMockClient:
                 transaction_hash="0xdef456",
                 trader_address="0xfund2",
                 trader_address_label="Smart Trader",
-                token_bought_symbol="BTC",
-                token_sold_symbol="USDC",
+                token_bought_symbol="BTC/USDT",
+                token_sold_symbol="ETH/USDT",
                 token_bought_address="0x123...abc",
                 token_sold_address="0xUSDC",
                 trade_value_usd=8_000.0,
