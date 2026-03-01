@@ -90,11 +90,7 @@ services:
     restart: unless-stopped
     user: root  
     command: >
-      sh -c "pip install -e . --break-system-packages && 
-      streamlit run app/ui/dashboard.py 
-      --server.port=8501 
-      --server.address=0.0.0.0 
-      --server.fileWatcherType=poll"
+      sh -c "pip install -e . --break-system-packages && streamlit run app/ui/dashboard.py --server.port=8501 --server.address=0.0.0.0 --server.fileWatcherType=poll"
 
 volumes:
   postgres_data:
