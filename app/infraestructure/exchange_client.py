@@ -98,6 +98,19 @@ class ExchangeClient:
             if self.name == "Binance":
                 params["quoteOrderQty"] = amount_usd # Binance usa quoteOrderQty
             
+            # En modo DEBUG, simulamos la ejecución para no depender de la API
+            if settings.DEBUG_MODE:
+                logger.info(f"🛠️ SIMULACIÓN: Orden de compra simulada para {formatted_symbol}")
+                return {
+                    'symbol': formatted_symbol,
+                    'type': 'market',
+                    'side': 'buy',
+                    'amount': amount_usd, # En test simulamos que el precio es 1 por simplicidad
+                    'price': 1.0,
+                    'average': 1.0,
+                    'status': 'closed'
+                }
+
             order = await self.exchange.create_order(
                 symbol=formatted_symbol,
                 type='market',
@@ -136,6 +149,10 @@ class ExchangeClient:
         """
         try:
             formatted_symbol = f"{symbol}/USDT" if "/" not in symbol else symbol
+            
+            if settings.DEBUG_MODE:
+                return 1.5  # Retorno simulado de +1.5%
+
             ohlcv = await self.exchange.fetch_ohlcv(formatted_symbol, timeframe='1h', limit=2)
             if len(ohlcv) < 2:
                 return 0.0
@@ -157,6 +174,10 @@ class ExchangeClient:
         """
         try:
             formatted_symbol = f"{symbol}/USDT" if "/" not in symbol else symbol
+            
+            if settings.DEBUG_MODE:
+                return 1_000_000.0 # 1 millón de USD de volumen simulado
+
             ticker = await self.exchange.fetch_ticker(formatted_symbol)
             return float(ticker.get('quoteVolume', 0.0))
         except Exception as e:

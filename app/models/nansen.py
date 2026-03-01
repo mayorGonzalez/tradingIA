@@ -1,10 +1,11 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
 class SmartMoneyFlow(BaseModel):
     """Flujo de entrada/salida de Smart Money (netflow endpoint)"""
+    model_config = ConfigDict(populate_by_name=True)
     chain: str
     token_address: str
     token_symbol: str

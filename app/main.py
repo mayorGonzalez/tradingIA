@@ -4,6 +4,9 @@ import psutil  # type: ignore
 from typing import Union, List
 from loguru import logger
 
+# Configuración de logs en archivo
+logger.add("bot_final_check.log", rotation="10 MB", level="INFO")
+
 from app.core.config import settings
 from app.models.nansen import NansenResponse, SignalResult
 from app.services.nansen_client import NansenClient
@@ -61,6 +64,7 @@ async def trading_job() -> None:
     try:
         # STEP 1: Gestionar salidas de posiciones abiertas (TP/SL)
         await exit_manager.check_open_positions()
+        logger.info("STEP 1 Completado: Chequeo de salidas realizado.")
 
         # STEP 2: Obtener balance real para cálculos de riesgo
         balances = await exchange.get_balance()
@@ -91,8 +95,10 @@ async def trading_job() -> None:
         # STEP 5: Middleware de Validación y Sanitización
         clean_flows = validator.validate_flows(raw_flows)
         if not clean_flows:
-            logger.info("No hay flujos válidos tras la sanitización.")
+            logger.info("No hay flujos válidos tras la sanitización del validador.")
             return
+        
+        logger.info(f"Flujos limpios: {len(clean_flows)}. Pasando al Engine...")
 
         # STEP 6: Motor de Señales (Scoring)
         all_candidates = await engine.analyze_flows(
@@ -113,6 +119,8 @@ async def trading_job() -> None:
         if not signals:
             logger.info("Sin señales operables en este ciclo.")
             return
+
+        logger.info(f"Detectadas {len(signals)} señales para procesar.")
 
         for s in signals:
             # STEP 7: Risk Manager - Validación de Seguridad por Token
