@@ -1,5 +1,5 @@
 # Multi-stage build para optimizar tamaño
-FROM python:3.12-slim as builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copiar requirements y compilar wheels
 COPY pyproject.toml uv.lock* ./
+SHELL ["/bin/bash", "-c"]
 RUN pip install --upgrade pip uv && \
     uv pip install --system -r <(uv pip compile pyproject.toml 2>/dev/null || echo "")
 
