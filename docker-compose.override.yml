@@ -29,13 +29,7 @@ services:
     tty: true
     
     # Reiniciar automáticamente al cambiar código
-    command: >
-      sh -c "pip install -e . --break-system-packages &&
-             streamlit run app/ui/dashboard.py 
-             --server.port=8501 
-             --server.address=0.0.0.0 
-             --server.fileWatcherType=poll"
-
+    command: sh -c "pip install -e . --break-system-packages && python3 -m streamlit run app/ui/dashboard.py --server.port=8501 --server.address=0.0.0.0 --server.fileWatcherType=poll"
   # PostgreSQL con datos que persisten
   postgres:
     volumes:
