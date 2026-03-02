@@ -3,6 +3,8 @@ from typing import Any, Dict, Optional
 from app.core.config import settings
 from loguru import logger
 from app.core.utils import retry_async
+import asyncio
+_init_lock = asyncio.Lock()
 
 _exchange_instance: Optional['ExchangeClient'] = None
 
@@ -92,7 +94,13 @@ class ExchangeClient:
         """
         try:
             formatted_symbol = symbol if "/" in symbol else f"{symbol}/USDT"
+            mock_price = await self.fetch_ticker(formatted_symbol)
             
+            if mock_price is None:
+                logger.error(f"Error al obtener precio de {symbol}")
+                return None
+
+
             # En Binance Testnet y MEXC Spot usamos params para especificar la cantidad en USDT
             params = {}
             if self.name == "Binance":
@@ -105,7 +113,7 @@ class ExchangeClient:
                     'symbol': formatted_symbol,
                     'type': 'market',
                     'side': 'buy',
-                    'amount': amount_usd / mock_price,  # ← CORREGIDO: cantidad de tokens
+                    'amount': amount_usd / mock_price,  
                     'price': mock_price,
                     'average': mock_price,
                     'status': 'closed'
@@ -184,11 +192,12 @@ class ExchangeClient:
             logger.error(f"Error al obtener volumen 24h para {symbol}: {e}")
             return None
 
-def get_exchange_client() -> ExchangeClient:
+async def get_exchange_client() -> ExchangeClient:
     """Retorna la instancia única del cliente del exchange (Singleton)."""
     global _exchange_instance
-    if _exchange_instance is None:
-        _exchange_instance = ExchangeClient()
+    async with _init_lock:
+        if _exchange_instance is None:
+            _exchange_instance = ExchangeClient()
     return _exchange_instance
 
 async def close_exchange_client() -> None:

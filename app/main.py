@@ -47,7 +47,7 @@ async def trading_job() -> None:
     logger.info("--- Iniciando Ciclo de Trading Inteligente ---")
     
     # 1. Inicialización de componentes (Exchange es Singleton)
-    exchange = get_exchange_client()
+    exchange = await get_exchange_client()  # BUG FIX: es una coroutine, requiere await
     portfolio = PortfolioService()
     notifier = TelegramNotifier(token=settings.TELEGRAM_TOKEN, chat_id=settings.TELEGRAM_CHAT_ID)
     
@@ -57,7 +57,8 @@ async def trading_job() -> None:
     )
     validator = NansenSignalValidator()
     engine = SignalEngine(exchange, portfolio, min_inflow_usd=settings.MIN_INFLOW_LIMIT)
-    risk_manager = RiskManager(max_per_trade_usd=500.0)
+    risk_manager = RiskManager()
+    risk_manager.reset_cycle()  # Limpiar estado del ciclo anterior
     circuit_breaker = CircuitBreaker()
     exit_manager = ExitManager(portfolio, exchange, notifier)
 
@@ -89,8 +90,14 @@ async def trading_job() -> None:
 
         # Manejo de errores en la recolección distribuida
         if isinstance(raw_flows, Exception):
-            logger.error(f"Error obteniendo flujos: {raw_flows}")
-            return
+            logger.error(f"[Main] Error crítico al obtener smart money flows: {raw_flows}")
+            return  # Sin flows no podemos operar
+        if isinstance(holdings, Exception):
+            logger.warning(f"[Main] Holdings no disponibles: {holdings}")
+            holdings = []
+        if isinstance(dex_trades, Exception):
+            logger.warning(f"[Main] DEX trades no disponibles: {dex_trades}")
+            dex_trades = []
 
         # STEP 5: Middleware de Validación y Sanitización
         clean_flows = validator.validate_flows(raw_flows)
@@ -152,10 +159,12 @@ async def trading_job() -> None:
                         entry_price = ticker_price if ticker_price else 0.0
                     
                     await portfolio.save_trade(
-                        symbol=s.token_symbol,
-                        price=entry_price,
-                        amount=position_size
+                        token_symbol=s.token_symbol,
+                        entry_price=entry_price,
+                        amount_usd=position_size
                     )
+                    # Registrar en RiskManager para control de exposición y re-entradas
+                    risk_manager.register_trade(s.token_symbol, position_size)
                     logger.success(f"✅ Compra completada y guardada: {s.token_symbol} @ {entry_price}")
                 else:
                     logger.error(f"❌ Error crítico: La orden de {s.token_symbol} falló en el exchange.")

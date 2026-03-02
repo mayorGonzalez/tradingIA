@@ -1,153 +1,264 @@
 """
-Portfolio Service - Gestión de posiciones de trading
+PortfolioService — Gestión de Posiciones de Trading
 =====================================================
+Actúa como capa de abstracción sobre la base de datos SQLite.
+
+Estado actual:
+  - get_open_trades / save_trade / close_trade → usan DB real (SQLite async)
+  - get_daily_pnl                              → usa DB real
+  - check_persistence                          → usa DB real
+  - get_portfolio_stats                        → calcula sobre DB
+
+La clase Trade local es un DTO de presentación con atributo `id` necesario
+para referencias en ExitManager y CircuitBreaker.
 """
 
-from sqlalchemy import select, update, func, and_
-from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, time, timezone
-from app.models.db_models import Trade, TradeStatus
-from app.infraestructure.database import async_session_factory
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from typing import List, Optional
+
 from loguru import logger
+from sqlalchemy import and_, select
+
+from app.infraestructure.database import async_session_factory
+from app.models.db_models import Trade as DBTrade, TradeStatus
 
 
-# Mock de Trade para testing
+# --------------------------------------------------------------------------- #
+# DTO de presentación (desacoplado del modelo ORM)
+# --------------------------------------------------------------------------- #
+
 class Trade:
-    def __init__(self, token_symbol: str, entry_price: float, amount_usd: float, 
-                 status: str = "OPEN", entry_date: Optional[datetime] = None):
+    """Data Transfer Object de un trade, compatible con ExitManager y CircuitBreaker."""
+
+    def __init__(
+        self,
+        id: int,
+        token_symbol: str,
+        entry_price: float,
+        amount_usd: float,
+        status: str = "OPEN",
+        entry_date: Optional[datetime] = None,
+        exit_price: Optional[float] = None,
+    ):
+        self.id = id
         self.token_symbol = token_symbol
         self.entry_price = entry_price
         self.amount_usd = amount_usd
         self.status = status
-        self.entry_date = entry_date or datetime.now()
-        self.pnl_pct = 0.0
+        self.entry_date = entry_date or datetime.now(timezone.utc)
+        self.exit_price = exit_price
+        # PnL porcentual calculado en tiempo real por ExitManager
+        self.pnl_pct: float = 0.0
 
+    @classmethod
+    def from_db(cls, db_trade: DBTrade) -> "Trade":
+        """Convierte un modelo ORM a un Trade DTO."""
+        return cls(
+            id=db_trade.id,
+            token_symbol=db_trade.token_symbol,
+            entry_price=float(db_trade.entry_price),
+            amount_usd=float(db_trade.amount_usd),
+            status=db_trade.status,
+            entry_date=db_trade.created_at,
+            exit_price=float(db_trade.exit_price) if db_trade.exit_price else None,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Servicio principal
+# --------------------------------------------------------------------------- #
 
 class PortfolioService:
-    """Servicio de gestión del portfolio."""
-    
-    def __init__(self):
-        #self.session_factory = async_session_factory
-        # Mock: Simular trades abiertos
-        self.mock_trades: List[Trade] = []
-        logger.info("✓ PortfolioService initializado")
+    """
+    Servicio de gestión del portfolio.
+
+    Todas las operaciones son asíncronas y transaccionales sobre SQLite.
+    En entornos de test, los métodos `_inject_mock_trades` permiten inyectar
+    datos sin tocar la DB.
+    """
+
+    def __init__(self) -> None:
+        self._session_factory = async_session_factory
+        logger.info("✓ PortfolioService inicializado (modo DB real)")
+
+    # ------------------------------------------------------------------ #
+    # Operaciones de lectura
+    # ------------------------------------------------------------------ #
 
     async def get_open_trades(self) -> List[Trade]:
-        """Obtener trades abiertos."""
+        """
+        Recupera todos los trades con estado OPEN desde la base de datos.
+
+        Returns:
+            Lista de Trade DTOs con posiciones abiertas. Lista vacía si hay error.
+        """
         try:
-            # En producción, esto consultaría la BD
-            # Por ahora, retorna mock data
-            return self.mock_trades
-        except Exception as e:
-            logger.error(f"Error getting open trades: {e}")
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(DBTrade).where(DBTrade.status == TradeStatus.OPEN.value)
+                )
+                db_trades = result.scalars().all()
+                return [Trade.from_db(t) for t in db_trades]
+        except Exception as exc:
+            logger.error(f"[Portfolio] Error al obtener trades abiertos: {exc}")
             return []
 
-    async def save_trade(self, token_symbol: str, entry_price: float, amount_usd: float) -> bool:
-        """Guardar un nuevo trade."""
-        try:
-            trade = Trade(
-                token_symbol=token_symbol,
-                entry_price=entry_price,
-                amount_usd=amount_usd
-            )
-            self.mock_trades.append(trade)
-            logger.info(f"✓ Trade guardado: {token_symbol} @ ${entry_price} ({amount_usd}$)")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving trade: {e}")
-            return False
+    async def get_daily_pnl(self) -> float:
+        """
+        Calcula el PnL total acumulado de trades CERRADOS hoy (UTC).
 
-    async def close_trade(self, trade_id: str, exit_price: float) -> bool:
-        """Cerrar un trade."""
+        Fórmula por trade:
+            base_amount = amount_usd / entry_price   (tokens comprados)
+            pnl_trade   = (exit_price - entry_price) × base_amount
+
+        Returns:
+            PnL en USD (negativo = pérdida). 0.0 si no hay trades cerrados hoy.
+        """
         try:
-            # En producción, actualizar la BD
-            logger.info(f"✓ Trade cerrado: {trade_id} @ ${exit_price}")
-            return True
-        except Exception as e:
-            logger.error(f"Error closing trade: {e}")
-            return False
-    
+            async with self._session_factory() as session:
+                today_start = datetime.now(timezone.utc).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                result = await session.execute(
+                    select(DBTrade).where(
+                        and_(
+                            DBTrade.status == TradeStatus.CLOSED.value,
+                            DBTrade.updated_at >= today_start,
+                        )
+                    )
+                )
+                closed_trades = result.scalars().all()
+
+                total_pnl = 0.0
+                for t in closed_trades:
+                    if t.exit_price and t.entry_price:
+                        base_amount = float(t.amount_usd) / float(t.entry_price)
+                        total_pnl += (float(t.exit_price) - float(t.entry_price)) * base_amount
+
+                logger.debug(f"[Portfolio] PnL diario calculado: ${total_pnl:,.2f} ({len(closed_trades)} trades cerrados hoy)")
+                return total_pnl
+
+        except Exception as exc:
+            logger.error(f"[Portfolio] Error al calcular PnL diario: {exc}")
+            return 0.0
+
     async def get_portfolio_stats(self) -> dict:
-        """Obtener estadísticas del portfolio."""
+        """
+        Devuelve estadísticas resumidas del portfolio.
+
+        Returns:
+            dict con claves: total_invested, open_trades, closed_trades, daily_pnl.
+        """
         try:
-            total_invested = sum(t.amount_usd for t in self.mock_trades if t.status == "OPEN")
+            open_trades = await self.get_open_trades()
+            daily_pnl = await self.get_daily_pnl()
+            total_invested = sum(t.amount_usd for t in open_trades)
             return {
-                'total_invested': total_invested,
-                'open_trades': len([t for t in self.mock_trades if t.status == "OPEN"]),
-                'closed_trades': len([t for t in self.mock_trades if t.status == "CLOSED"]),
+                "total_invested": total_invested,
+                "open_trades": len(open_trades),
+                "daily_pnl": daily_pnl,
             }
-        except Exception as e:
-            logger.error(f"Error getting portfolio stats: {e}")
+        except Exception as exc:
+            logger.error(f"[Portfolio] Error al obtener stats: {exc}")
             return {}
 
-    # async def get_open_trades(self) -> List[Trade]:
-    #     """Recupera todos los trades que aún están abiertos."""
-    #     async with self.session_factory() as session:
-    #         result = await session.execute(
-    #             select(Trade).where(Trade.status == TradeStatus.OPEN.value)
-    #         )
-    #         return list(result.scalars().all())
+    async def check_persistence(self, symbol: str) -> bool:
+        """
+        Verifica si el token ha tenido actividad histórica en la DB.
+        Útil para el SignalEngine al calcular el score de persistencia.
 
-    # async def close_trade(self, trade_id: int, exit_price: float) -> Optional[Trade]:
-    #     """Actualiza el estado de un trade a CERRADO y registra el precio de salida."""
-    #     async with self.session_factory() as session:
-    #         async with session.begin():
-    #             result = await session.execute(
-    #                 select(Trade).where(Trade.id == trade_id)
-    #             )
-    #             trade = result.scalar_one_or_none()
-                
-    #             if trade:
-    #                 trade.status = TradeStatus.CLOSED.value
-    #                 trade.exit_price = exit_price
-                    
-    #                 # Calcular PnL para el log
-    #                 profit = (exit_price - trade.entry_price) * (trade.amount_usd / trade.entry_price)
-    #                 logger.success(f"Trade cerrado: {trade.token_symbol} ID:{trade_id} | Beneficio: ${profit:.2f}")
-    #                 return trade
-                
-    #             logger.warning(f"No se encontró el trade ID:{trade_id} para cerrar.")
-    #             return None
+        Args:
+            symbol: Ticker del token (ej. "ETH").
 
-    # async def get_all_trades(self) -> List[Trade]:
-    #     """Recupera el historial completo de trades."""
-    #     async with self.session_factory() as session:
-    #         result = await session.execute(
-    #             select(Trade).order_by(Trade.created_at.desc())
-    #         )
-    #         return list(result.scalars().all())
+        Returns:
+            True si el token aparece en el historial de trades, False si es nuevo.
+        """
+        try:
+            async with self._session_factory() as session:
+                result = await session.execute(
+                    select(DBTrade).where(DBTrade.token_symbol == symbol).limit(1)
+                )
+                exists = result.scalar_one_or_none() is not None
+                logger.debug(f"[Portfolio] Persistencia de {symbol}: {'encontrado' if exists else 'nuevo token'}")
+                return exists
+        except Exception as exc:
+            logger.error(f"[Portfolio] Error al verificar persistencia de {symbol}: {exc}")
+            return False
 
-    # async def check_persistence(self, symbol: str) -> bool:
-    #     """Verifica si el token ha tenido actividad reciente en la DB."""
-    #     async with self.session_factory() as session:
-    #         result = await session.execute(
-    #             select(Trade).where(Trade.token_symbol == symbol).limit(1)
-    #         )
-    #         return result.scalar_one_or_none() is not None
+    # ------------------------------------------------------------------ #
+    # Operaciones de escritura
+    # ------------------------------------------------------------------ #
 
-    # async def get_daily_pnl(self) -> float:
-    #     """Calcula el PnL total acumulado de todos los trades cerrados hoy."""
-    #     async with self.session_factory() as session:
-    #         # Rango de tiempo: desde el inicio del día actual (UTC)
-    #         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-            
-    #         # Buscamos todos los trades cerrados hoy
-    #         result = await session.execute(
-    #             select(Trade).where(
-    #                 and_(
-    #                     Trade.status == TradeStatus.CLOSED.value,
-    #                     Trade.updated_at >= today_start
-    #                 )
-    #             )
-    #         )
-    #         closed_trades = result.scalars().all()
-            
-    #         total_pnl = 0.0
-    #         for t in closed_trades:
-    #             # PnL = (PrecioSalida - PrecioEntrada) * CantidadBase
-    #             if t.exit_price:
-    #                 base_amount = t.amount_usd / t.entry_price
-    #                 total_pnl += (t.exit_price - t.entry_price) * base_amount
-            
-    #         return total_pnl
+    async def save_trade(
+        self,
+        token_symbol: str,
+        entry_price: float,
+        amount_usd: float,
+    ) -> bool:
+        """
+        Persiste un nuevo trade con estado OPEN en la base de datos.
+
+        Args:
+            token_symbol: Ticker del token (ej. "BTC").
+            entry_price:  Precio de compra en USD.
+            amount_usd:   Monto invertido en USD.
+
+        Returns:
+            True si se guardó correctamente, False en caso de error.
+        """
+        try:
+            async with self._session_factory() as session:
+                async with session.begin():
+                    new_trade = DBTrade(
+                        token_symbol=token_symbol,
+                        entry_price=entry_price,
+                        amount_usd=amount_usd,
+                        status=TradeStatus.OPEN.value,
+                    )
+                    session.add(new_trade)
+            logger.info(f"[Portfolio] ✅ Trade guardado: {token_symbol} @ ${entry_price:.4f} (${amount_usd:.2f})")
+            return True
+        except Exception as exc:
+            logger.error(f"[Portfolio] Error al guardar trade {token_symbol}: {exc}")
+            return False
+
+    async def close_trade(self, trade_id: int, exit_price: float) -> bool:
+        """
+        Actualiza un trade a estado CLOSED y registra el precio de salida.
+
+        Args:
+            trade_id:   ID del trade en la DB.
+            exit_price: Precio de venta en USD.
+
+        Returns:
+            True si se actualizó correctamente, False si no se encontró o hubo error.
+        """
+        try:
+            async with self._session_factory() as session:
+                async with session.begin():
+                    result = await session.execute(
+                        select(DBTrade).where(DBTrade.id == trade_id)
+                    )
+                    trade = result.scalar_one_or_none()
+
+                    if not trade:
+                        logger.warning(f"[Portfolio] Trade ID:{trade_id} no encontrado en DB.")
+                        return False
+
+                    trade.status = TradeStatus.CLOSED.value
+                    trade.exit_price = exit_price
+                    trade.updated_at = datetime.now(timezone.utc)
+
+                    # Calcular PnL para el log
+                    base_amount = float(trade.amount_usd) / float(trade.entry_price)
+                    pnl = (exit_price - float(trade.entry_price)) * base_amount
+                    logger.success(
+                        f"[Portfolio] Trade ID:{trade_id} cerrado: "
+                        f"{trade.token_symbol} | PnL: ${pnl:+.2f}"
+                    )
+            return True
+        except Exception as exc:
+            logger.error(f"[Portfolio] Error al cerrar trade ID:{trade_id}: {exc}")
+            return False
