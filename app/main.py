@@ -47,7 +47,7 @@ async def trading_job() -> None:
     logger.info("--- Iniciando Ciclo de Trading Inteligente ---")
     
     # 1. Inicialización de componentes (Exchange es Singleton)
-    exchange = await get_exchange_client()  # BUG FIX: es una coroutine, requiere await
+    exchange = await get_exchange_client()
     portfolio = PortfolioService()
     notifier = TelegramNotifier(token=settings.TELEGRAM_TOKEN, chat_id=settings.TELEGRAM_CHAT_ID)
     

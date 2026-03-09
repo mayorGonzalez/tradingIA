@@ -11,6 +11,16 @@ from tenacity import (  # type: ignore
 from loguru import logger
 from typing import Any, Callable, TypeVar
 
+
+'''Este archivo es el "Mecánico de Guardia" de tu bot. 
+En el mundo del trading algorítmico, las conexiones a internet fallan,
+ los exchanges (Binance, MEXC) se saturan y las APIs a veces no 
+ responden.
+
+Si el bot intentara hacer una compra y la conexión parpadeara un 
+segundo, sin este archivo, el bot se "rompería" y se detendría. 
+Este código evita eso mediante reintentos inteligentes.'''
+
 F = TypeVar('F', bound=Callable[..., Any])
 
 def retry_async(

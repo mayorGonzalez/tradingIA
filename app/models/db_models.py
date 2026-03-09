@@ -4,6 +4,15 @@ from sqlalchemy import String, Float, DateTime, func, Index
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 from typing import Optional
 
+'''Este archivo define la "Arquitectura" de tu memoria a largo plazo.
+
+Imagina que tu bot es un estudiante. Este archivo es el diseño de su cuaderno:
+le dice exactamente dónde escribir la fecha de un trade, cuánto dinero invirtió,
+cuánto ganó al salir, y si está abierto o cerrado.
+
+Sin esto, el bot no sabría dónde apuntar sus ganancias o cómo recordar qué
+operaciones están pendientes. Es la estructura de la base de datos.'''
+
 class Base(DeclarativeBase):
     """Clase base para el mapeo declarativo."""
     pass

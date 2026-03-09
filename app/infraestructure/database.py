@@ -2,6 +2,14 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from typing import AsyncGenerator
 from app.models.db_models import Base
 
+'''Este archivo es el "Archivista" o el "Bibliotecario" del proyecto.
+ Su única misión es gestionar cómo el bot guarda y lee información 
+ de forma permanente (historial de trades, balances, logs de 
+ operaciones) sin bloquear el resto del programa.
+
+Utiliza SQLAlchemy, que es el estándar de oro en Python para hablar 
+con bases de datos.'''
+
 # URL de la base de datos SQLite asíncrona
 DATABASE_URL = "sqlite+aiosqlite:///./trading_v2.db"
 

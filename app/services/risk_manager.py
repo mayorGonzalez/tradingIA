@@ -15,6 +15,17 @@ from typing import List
 from app.core.config import settings
 from app.models.nansen import SignalResult
 
+'''Este archivo es el "Guardián" o el "Filtro de Seguridad" de tu bot.
+
+Imagina que tu cerebro (AIAnalyst) es un estratega brillante pero a veces impulsivo.
+Este módulo es el "Contralor" que se sienta a su lado.
+
+Su trabajo es decir:
+- "Espera, cerebro. Esa señal parece buena, pero ¿tenemos suficiente dinero?"
+- "¿Ya invertimos mucho en esta moneda? No podemos poner todos los huevos en la misma canasta."
+- "¿Esta moneda está cayendo en picado ahora mismo? Mejor no comprar."
+
+Es el encargado de proteger tu dinero real.'''
 
 class RiskManager:
     """

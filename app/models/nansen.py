@@ -2,6 +2,16 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
+'''Este archivo es el "Traductor" o "Adaptador" de tu sistema.
+
+Imagina que tu cerebro (Core) habla español y el mercado (Exchange) habla chino.
+Este archivo se encarga de traducir las órdenes de "Compra" a los comandos exactos
+que Binance o MEXC entienden, y también de traducir las respuestas del mercado
+a información que tu cerebro pueda procesar (como el balance o los precios).
+
+Además, aquí está la lógica de "Seguridad": si el mercado está cerrado (noche),
+este módulo se asegura de que el bot no intente comprar y se duerma tranquilamente
+(modo DEBUG) o espere (modo PROD).'''
 
 class SmartMoneyFlow(BaseModel):
     """Flujo de entrada/salida de Smart Money (netflow endpoint)"""
