@@ -67,6 +67,22 @@ python -m app.main
 pytest
 ```
 
+## 🐳 Uso con Docker
+
+Si prefieres no instalar Python y `uv` localmente, puedes levantar todo el entorno fácilmente usando **Docker** y **Docker Compose**.
+
+1. Asegúrate de tener docker configurado y ejecutándose en tu sistema.
+2. Configura tu `.env` como se detalla en los pasos de instalación.
+3. Construye e inicia los servicios (El dashboard UI y el Bot Core) ejecutando:
+
+```bash
+docker-compose up --build
+```
+    
+- El dashboard estará disponible en: [http://localhost:8501](http://localhost:8501)
+- Si deseas correr los contenedores en segundo plano (detached mode), usa: `docker-compose up -d`
+- Para detener el sistema: `docker-compose down`
+
 ## 🏗️ Estructura del Proyecto
 
 El proyecto está organizado en una estructura limpia y orientada a dominios:
