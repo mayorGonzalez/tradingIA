@@ -41,7 +41,7 @@ class Settings(BaseSettings):
 
     # --- Parámetros de Operación (Lifecycle) ---
     # Controla la frecuencia del bucle principal de escaneo de Smart Money.
-    POLLING_INTERVAL_MINUTES: int = 15
+    POLLING_INTERVAL_MINUTES: int = 1
     DEBUG_MODE: bool = True
 
     # --- Filtros de Datos (Calidad de Señal) ---

@@ -13,6 +13,9 @@ from datetime import datetime, timedelta
 from loguru import logger
 import asyncio
 import numpy as np
+import nest_asyncio
+
+nest_asyncio.apply()
 
 from app.services.ai_analyst import AIAnalyst
 from app.services.portfolio_service import PortfolioService
@@ -404,14 +407,10 @@ def run_sync(coro):
     """Ejecuta una corrutina de forma síncrona dentro del loop de Streamlit."""
     try:
         loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import nest_asyncio
-            nest_asyncio.apply()
-            return loop.run_until_complete(coro)
-        return asyncio.run(coro)
-    except Exception as e:
-        logger.error(f"Error en run_sync: {e}")
-        return None
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
 
 # ==================== TABS ====================
 tab1, tab2, tab3 = st.tabs(["🤖  Asistente IA", "📊  Smart Money", "💼  Cartera"])
