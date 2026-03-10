@@ -54,7 +54,7 @@ services:
       ollama:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://trading_user:${DB_PASSWORD:-trading_secure_pass_change_me}@postgres:5432/tradingia_db
+      DATABASE_URL: postgresql+asyncpg://trading_user:trading_pass@postgres:5432/tradingia_db
       LLM_PROVIDER: ${LLM_PROVIDER:-local}
       LLM_BASE_URL: http://ollama:11434
       LLM_MODEL: ${LLM_MODEL:-qwen2.5-coder:3b}

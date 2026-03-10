@@ -32,7 +32,7 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY pyproject.toml uv.lock* ./
 COPY app/ ./app/
 COPY scripts/ ./scripts/
-COPY .env.example ./.env
+# COPY .env.example ./.env
 
 # Health check para Ollama
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

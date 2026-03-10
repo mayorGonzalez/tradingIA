@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     # Filtro anti-fomo: Evita entrar en activos con crecimientos explosivos inmediatos.
     MAX_PRICE_CHANGE_1H_PCT: float = 50.0
 
+    DATABASE_URL: str = Field(
+        default="postgresql+asyncpg://trading_user:trading_pass@postgres:5432/tradingia_db"
+    )
+
     # --- Notificaciones (Observabilidad) ---
     TELEGRAM_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
