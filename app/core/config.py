@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     # --- Umbrales de Decisión (Filtro Final) ---
     # Mínimo score requerido para autorizar una ejecución de compra.
     # PRODUCCIÓN: Usar ≥ 50. En desarrollo/debug puede bajar a 30.
-    MIN_SCORE_THRESHOLD: float = 60.0
+    MIN_SCORE_THRESHOLD: float = 30.0
     # Filtro anti-fomo: Evita entrar en activos con crecimientos explosivos inmediatos.
     MAX_PRICE_CHANGE_1H_PCT: float = 50.0
 
