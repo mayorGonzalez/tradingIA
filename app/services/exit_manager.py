@@ -74,10 +74,13 @@ class ExitManager:
 
         for trade in open_trades:
             try:
+                # Recuperar estado de la DB si no está en RAM
+                if trade.id not in self._high_water_marks:
+                    self._high_water_marks[trade.id] = trade.entry_price
+                
                 await self._evaluate_trade(trade)
             except Exception as exc:
-                logger.error(f"[Exit] Error procesando trade ID:{trade.id} ({trade.token_symbol}): {exc}")
-
+                logger.error(f"[Exit] Fallo crítico en trade {trade.token_symbol}: {exc}")
     # ------------------------------------------------------------------ #
     # Evaluación individual de un trade
     # ------------------------------------------------------------------ #
@@ -100,18 +103,14 @@ class ExitManager:
         pnl_pct = ((current_price - trade.entry_price) / trade.entry_price) * 100
         logger.debug(f"[Exit] {symbol}: PnL={pnl_pct:+.2f}% | Precio actual=${current_price:,.4f}")
 
-        # Actualizar high-water mark para trailing stop
-        self._update_high_water_mark(trade.id, current_price)
+        # Actualizar máximo histórico (High Water Mark)
+        if current_price > self._high_water_marks.get(trade.id, 0):
+            self._high_water_marks[trade.id] = current_price
 
-        # Evaluar reglas (en orden de prioridad)
         action, reason, sell_fraction = self._determine_exit_action(trade, pnl_pct, current_price)
 
-        if action == "none":
-            return
-
-        # Ejecutar la salida
-        await self._execute_exit(trade, current_price, pnl_pct, reason, sell_fraction)
-
+        if action != "none":
+            await self._execute_exit(trade, current_price, pnl_pct, reason, sell_fraction)
     # ------------------------------------------------------------------ #
     # Lógica de decisión
     # ------------------------------------------------------------------ #

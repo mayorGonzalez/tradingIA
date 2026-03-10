@@ -40,19 +40,16 @@ class RiskManager:
 
     def __init__(
         self,
-        current_exposure_usd: float = 0.0,
-        max_per_trade_usd: float | None = None,
+        total_equity_usd:float,
+        current_exposure_usd: float ,
     ):
-        self.max_exposure_per_token_pct: float = 0.10   # 10% del capital total
-        self.current_exposure: float = current_exposure_usd
-        # Respetar config global si no se pasa explícitamente
-        self.max_per_trade_usd: float = (
-            max_per_trade_usd if max_per_trade_usd is not None
-            else settings.MAX_POSITION_SIZE_USD
-        )
-        # Registro de tokens ya operados en este ciclo para control de correlación
+        # El capital de referencia es el Equity Total (Cash + Valor de Mercado)
+        self.total_equity = total_equity_usd
+        self.current_exposure = current_exposure_usd
+        
+        self.max_exposure_per_token_pct = 0.10
+        self.max_per_trade_usd = settings.MAX_POSITION_SIZE_USD
         self._traded_symbols_this_cycle: List[str] = []
-
     # ------------------------------------------------------------------ #
     # Validación de ejecución
     # ------------------------------------------------------------------ #
@@ -78,79 +75,55 @@ class RiskManager:
         """
         symbol = signal.token_symbol
 
-        # --- 1. Tamaño mínimo viable ----------------------------------- #
+        # 1. Verificación de Balance Real
         min_viable = settings.MIN_POSITION_SIZE_USD
-        max_investment = available_balance * self.max_exposure_per_token_pct
-        if max_investment < min_viable:
-            logger.warning(
-                f"[Risk] {symbol} rechazado: inversión calculada "
-                f"(${max_investment:.2f}) < mínimo (${min_viable:.2f}). "
-                f"Balance insuficiente."
-            )
+        if available_balance < min_viable:
+            logger.warning(f"[Risk] {symbol} ❌ Balance insuficiente ({int(available_balance)} USD)")
             return False
 
-        # --- 2. Tamaño máximo por trade -------------------------------- #
-        if self.max_per_trade_usd < min_viable:
-            logger.warning(
-                f"[Risk] {symbol} rechazado: MAX_POSITION_SIZE_USD "
-                f"(${self.max_per_trade_usd}) está por debajo del mínimo operativo."
-            )
+        # 2. Límite de Concentración (Anti-Ballenas)
+        # Calculamos sobre Equity Total, no sobre lo que sobra.
+        suggested_investment = min(self.total_equity * self.max_exposure_per_token_pct, self.max_per_trade_usd)
+        
+        if suggested_investment < min_viable:
             return False
 
-        # --- 3. Exposición notional por token (anti-concentración) ----- #
-        exposure_limit_usd = available_balance * self.max_exposure_per_token_pct
-        if self.current_exposure + exposure_limit_usd > available_balance * 0.8:
-            logger.warning(
-                f"[Risk] {symbol} rechazado: exposición total "
-                f"(${self.current_exposure:.2f}) + nueva posición superaría "
-                f"el 80% del balance disponible."
-            )
+        # 3. Control de Exposición Global (Máximo 80% invertido)
+        if (self.current_exposure + suggested_investment) > (self.total_equity * 0.80):
+            logger.warning(f"[Risk] {symbol} ❌ Exposición global al límite ({int(self.current_exposure)} USD)")
             return False
 
-        # --- 4. Factores de riesgo acumulados -------------------------- #
-        max_risk_factors = 2
-        if len(signal.risk_factors) > max_risk_factors:
-            logger.warning(
-                f"[Risk] {symbol} descartado por demasiados factores de riesgo "
-                f"({len(signal.risk_factors)}/{max_risk_factors}): {signal.risk_factors}"
-            )
+        # 4. Filtro de Factores de Riesgo (Máximo 2)
+        if len(signal.risk_factors) > 2:
+            logger.warning(f"[Risk] {symbol} ❌ Riesgo excesivo: {', '.join(signal.risk_factors)}")
             return False
 
-        # --- 5. Control de Volatilidad (VaR Simplificado) -------------- #
+        # 5. Volatilidad de Lanzamiento (Punto 9)
         if signal.price_change_1h is not None:
-            if signal.price_change_1h < settings.STOP_LOSS_PCT:
-                logger.warning(
-                    f"[Risk] {symbol} en caída libre "
-                    f"({signal.price_change_1h:+.2f}% en 1h). No entrar."
-                )
+            # Caída Libre
+            if signal.price_change_1h <= settings.STOP_LOSS_PCT:
+                logger.warning(f"[Risk] {symbol} ❌ Caída libre ({int(signal.price_change_1h)}%)")
                 return False
+            
+            # FOMO Extremo (Evitar entrar en el pico de la vela)
             if signal.price_change_1h > settings.MAX_PRICE_CHANGE_1H_PCT:
-                logger.warning(
-                    f"[Risk] {symbol} en alza explosiva (FOMO) "
-                    f"({signal.price_change_1h:+.2f}% en 1h > límite "
-                    f"{settings.MAX_PRICE_CHANGE_1H_PCT}%). No entrar."
-                )
-                return False
+                # Solo permitimos si el score de Smart Money es > 90 (Alta convicción)
+                if signal.score < 90:
+                    logger.warning(f"[Risk] {symbol} ❌ FOMO detectado ({int(signal.price_change_1h)}%)")
+                    return False
 
-        # --- 6. Correlación / Re-entrada en el mismo ciclo ------------- #
+        # 6. Prevención de Duplicados en Ciclo
         if symbol in self._traded_symbols_this_cycle:
-            logger.warning(
-                f"[Risk] {symbol} ya fue operado en este ciclo. "
-                f"Evitando re-entrada para reducir correlación."
-            )
             return False
 
-        logger.info(
-            f"[Risk] ✅ {symbol} VALIDADO para ejecución. "
-            f"Inversión máxima sugerida: ${min(max_investment, self.max_per_trade_usd):.2f}"
-        )
+        logger.info(f"[Risk] ✅ {symbol} VALIDADO. Max Sugerido: {int(suggested_investment)} USD")
         return True
 
     # ------------------------------------------------------------------ #
     # Cálculo del tamaño de posición
     # ------------------------------------------------------------------ #
 
-    def calculate_position_size(self, balance: float, signal_score: float) -> float:
+    def calculate_position_size(self, signal_score: float) -> float:
         """
         Calcula cuánto invertir basado en el balance y la confianza de la señal.
 
@@ -168,19 +141,20 @@ class RiskManager:
             Monto en USD a invertir, redondeado a 2 decimales.
         """
         confidence_multiplier = max(0.0, min(signal_score / 100.0, 1.0))
-        raw_investment = balance * self.max_exposure_per_token_pct * confidence_multiplier
-
+        # Escalamiento lineal de la posición según el score
+        size = self.total_equity * self.max_exposure_per_token_pct * confidence_multiplier
         # Ajustar por volatilidad implícita en el score:
         # scores bajos → reducir tamaño adicionalmente un 50%
-        if signal_score < 50:
-            raw_investment *= 0.5
+        if signal_score < 60:
+            size *= 0.5
             logger.debug(
                 f"[Risk] Score bajo ({signal_score}): reduciendo posición "
-                f"un 50% → ${raw_investment:.2f}"
+                f"un 50% → ${size:.2f}"
             )
 
         # Acotar entre mínimo y máximo definidos en configuración
-        position = max(settings.MIN_POSITION_SIZE_USD, min(raw_investment, self.max_per_trade_usd))
+        position = max(settings.MIN_POSITION_SIZE_USD, min(size, self.max_per_trade_usd))
+       
         return round(position, 2)
 
     # ------------------------------------------------------------------ #

@@ -199,3 +199,14 @@ class AIAnalyst:
         except Exception as e:
             logger.error(f"[AIAnalyst] Error en _fetch_context: {e}")
             return "Error técnico", "Error técnico", "Error técnico"
+
+        def format_currency(value: float) -> str:
+            """Ajuste al estilo Vicente: Millones o Miles sin decimales."""
+            if value >= 1_000_000:
+                return f"{value / 1_000_000:.1f}M"
+            if value >= 1_000:
+                return f"{value / 1_000:.0f}K"
+            return f"{value:.0f}"
+
+        # En _fetch_context cambia la línea:
+        n_lines.append(f"• {f.token_symbol}: Netflow 24h=${format_currency(f.net_flow_usd)} | Traders: {f.trader_count}")

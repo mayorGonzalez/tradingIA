@@ -20,6 +20,7 @@ from app.infraestructure.exchange_client import get_exchange_client, close_excha
 from app.infraestructure.database import init_db
 from app.services.portfolio_service import PortfolioService
 from app.services.exit_manager import ExitManager
+from app.services.ai_analyst import AIAnalyst
 
 # Variable global para control de apagado
 shutdown_event = asyncio.Event()
@@ -49,38 +50,29 @@ async def trading_job() -> None:
     # 1. Inicialización de componentes (Exchange es Singleton)
     exchange = await get_exchange_client()
     portfolio = PortfolioService()
-    notifier = TelegramNotifier(token=settings.TELEGRAM_TOKEN, chat_id=settings.TELEGRAM_CHAT_ID)
-    
-    # Servicios de Análisis y Riesgo
-    client: Union[NansenMockClient, NansenClient] = (
-        NansenMockClient() if settings.DEBUG_MODE else NansenClient()
-    )
-    validator = NansenSignalValidator()
-    engine = SignalEngine(exchange, portfolio, min_inflow_usd=settings.MIN_INFLOW_LIMIT)
-    risk_manager = RiskManager()
-    risk_manager.reset_cycle()  # Limpiar estado del ciclo anterior
+    notifier = TelegramNotifier()
     circuit_breaker = CircuitBreaker()
-    exit_manager = ExitManager(portfolio, exchange, notifier)
+    
+    # STEP 0: Seguridad de Emergencia (Primero de todo)
+    # Obtenemos Equity total para el breaker
+    prices = await exchange.get_all_tickers() # Necesario para PnL flotante
+    total_equity = await portfolio.get_total_equity(prices)
+    
+    if await circuit_breaker.is_open(portfolio, total_equity):
+        logger.warning("🛑 CIRCUIT BREAKER ABIERTO. Abortando ciclo.")
+        return
 
+    # STEP 1: Gestión de Salidas (Asegurar beneficios/cortar pérdidas)
+    exit_manager = ExitManager(portfolio, exchange, notifier)
+        
     try:
         # STEP 1: Gestionar salidas de posiciones abiertas (TP/SL)
         await exit_manager.check_open_positions()
         logger.info("STEP 1 Completado: Chequeo de salidas realizado.")
 
-        # STEP 2: Obtener balance real para cálculos de riesgo
-        balances = await exchange.get_balance()
-        usdt_balance = balances.get('USDT', 0.0) if balances else 0.0
-        
-        if settings.DEBUG_MODE:
-             usdt_balance = max(usdt_balance, 1000.0) # Simulación de balance para test
-
-        # STEP 3: Circuit Breaker - ¿Es seguro operar hoy?
-        if await circuit_breaker.is_open(portfolio, usdt_balance):
-            logger.warning("🛑 Operaciones bloqueadas por Circuit Breaker (Límite de posiciones o Drawdown).")
-            return
-
         # STEP 4: Obtener datos de Nansen (Paralelo)
         logger.info("Obteniendo datos de Nansen...")
+        client = NansenMockClient() if settings.DEBUG_MODE else NansenClient()
         raw_flows, holdings, dex_trades = await asyncio.gather(
             client.get_smart_money_flows(),
             client.get_smart_money_holdings(),
@@ -99,6 +91,10 @@ async def trading_job() -> None:
             logger.warning(f"[Main] DEX trades no disponibles: {dex_trades}")
             dex_trades = []
 
+
+        validator = NansenSignalValidator()
+        engine = SignalEngine(exchange, portfolio)
+        ai_analyst = AIAnalyst() # Gemini 1.5 Pro integrado
         # STEP 5: Middleware de Validación y Sanitización
         clean_flows = validator.validate_flows(raw_flows)
         if not clean_flows:
@@ -108,71 +104,45 @@ async def trading_job() -> None:
         logger.info(f"Flujos limpios: {len(clean_flows)}. Pasando al Engine...")
 
         # STEP 6: Motor de Señales (Scoring)
-        all_candidates = await engine.analyze_flows(
+        candidates = await engine.analyze_flows(
             flows=clean_flows,
             holdings=holdings if not isinstance(holdings, Exception) else [],
             dex_trades=dex_trades if not isinstance(dex_trades, Exception) else [],
         )
         
-        # Filtrar solo las válidas por Score
-        signals = [s for s in all_candidates if s.is_valid]
-
-        # Inyección de Mock en modo DEBUG si no hay señales reales del mock
-        if settings.DEBUG_MODE and not signals and all_candidates:
-            logger.info("🛠️ DEBUG_MODE: Forzando señal de prueba para el primer candidato del mock.")
-            signals = [all_candidates[0]]
-            signals[0].is_valid = True
-
-        if not signals:
-            logger.info("Sin señales operables en este ciclo.")
-            return
-
-        logger.info(f"Detectadas {len(signals)} señales para procesar.")
-
-        for s in signals:
-            # STEP 7: Risk Manager - Validación de Seguridad por Token
-            if not risk_manager.validate_execution(s, usdt_balance):
-                logger.warning(f"⚠️ {s.token_symbol} rechazado por RiskManager (Filtro de seguridad).")
+        # Filtramos por Score y luego por IA
+        for s in [c for c in candidates if c.is_valid]: 
+            # --- EL FILTRO DE VICENTE ---
+            # Gemini analiza el contexto (¿Quién es el SM? ¿Hay pump artificial?)
+            ai_verdict = await ai_analyst.analyze_opportunity(s)
+            if not ai_verdict.is_bullish:
+                logger.info(f"🧠 Gemini rechazó {s.token_symbol}: {ai_verdict.reason}")
                 continue
 
-            # STEP 8: Cálculo de Tamaño de Posición
-            position_size = risk_manager.calculate_position_size(usdt_balance, s.score)
+            # STEP 4: Risk Management & Execution
+            risk_manager = RiskManager(total_equity, await portfolio.get_current_exposure())
+            if not risk_manager.validate_execution(s, await exchange.get_free_balance("USDT")):
+                continue
+
+            position_size = risk_manager.calculate_position_size(s.score)
             
-            # Ajuste para Testnet (mínimo $10)
-            if settings.DEBUG_MODE:
-                position_size = max(position_size, 11.0)
+            # EJECUCIÓN
+            await notifier.send_alert(f"🚀 <b>COMPRANDO {s.token_symbol}</b>\nIA: {ai_verdict.summary}")
+            order = await exchange.create_market_buy_order(s.token_symbol, position_size)
             
-            if position_size >= 10.0:
-                logger.success(f"🚀 EJECUTANDO COMPRA: {s.token_symbol} | Score: {s.score} | Monto: ${position_size}")
-                
-                # Alerta Pre-Ejecución
-                await notifier.send_alert(f"🎯 <b>Señal Validada: {s.token_symbol}</b>\n⭐ Score: {s.score}/100\n⚖️ Inversión: ${position_size}")
-                
-                # Ejecución en Exchange
-                order = await exchange.create_market_buy_order(s.token_symbol, position_size)
-                
-                if order:
-                    # STEP 9: Persistencia y Gestión del Portfolio
-                    entry_price = float(order.get('average', order.get('price', 0.0)))
-                    if not entry_price:
-                        ticker_price = await exchange.fetch_ticker(s.token_symbol)
-                        entry_price = ticker_price if ticker_price else 0.0
-                    
-                    await portfolio.save_trade(
-                        token_symbol=s.token_symbol,
-                        entry_price=entry_price,
-                        amount_usd=position_size
-                    )
-                    # Registrar en RiskManager para control de exposición y re-entradas
-                    risk_manager.register_trade(s.token_symbol, position_size)
-                    logger.success(f"✅ Compra completada y guardada: {s.token_symbol} @ {entry_price}")
-                else:
-                    logger.error(f"❌ Error crítico: La orden de {s.token_symbol} falló en el exchange.")
-            else:
-                logger.warning(f"Inversión calculada para {s.token_symbol} (${position_size}) es inferior al mínimo.")
+            if order:
+                # Persistencia con datos Multichain
+                await portfolio.save_trade(
+                    token_symbol=s.token_symbol,
+                    token_address=s.token_address,
+                    chain=s.chain,
+                    entry_price=order.get('price', s.current_price),
+                    amount_usd=position_size
+                )
+                logger.success(f"✅ Posición abierta: {s.token_symbol}")
 
     except Exception as e:
-        logger.error(f"Error crítico en el ciclo de trading: {e}")
+        logger.error(f"Error in trading_job: {e}")
 
 async def main() -> None:
     logger.info(f"TradingAI activo (DEBUG={settings.DEBUG_MODE})")

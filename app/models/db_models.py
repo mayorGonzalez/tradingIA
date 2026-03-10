@@ -26,19 +26,21 @@ class Trade(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     token_symbol: Mapped[str] = mapped_column(String(20), index=True)
+    
+    # --- Auditoría de Estrategia ---
+    is_paper_trade: Mapped[bool] = mapped_column(default=True) # Modo Lápiz por defecto
+    entry_concentration: Mapped[float] = mapped_column(Float, nullable=True) # % de holders
+    reasoning: Mapped[Optional[str]] = mapped_column(String(500), nullable=True) # Justificación de la IA
+    
+    # --- Datos de Operación ---
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
     amount_usd: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String(10), default=TradeStatus.OPEN.value)
     exit_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), 
-        server_default=func.now(),
-        onupdate=func.now()
-    )
+    
+    # --- Fechas ---
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     def __repr__(self) -> str:
         return f"<Trade(symbol={self.token_symbol}, status={self.status}, entry={self.entry_price})>"

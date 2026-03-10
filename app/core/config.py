@@ -32,10 +32,10 @@ class Settings(BaseSettings):
     # GEMINI_API_KEY: DEBE ser sobreescrito por variable de entorno GEMINI_API_KEY
     GEMINI_API_KEY: SecretStr = Field(default=SecretStr(""), description="API Key de Gemini (requiere .env)")
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai"
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = "gemini-1.5-pro"
 
     # --- Configuración de LLM Local ---
-    LLM_PROVIDER: str = Field(default="local")  # "local" o "gemini"
+    LLM_PROVIDER: str = Field(default="gemini")  # "local" o "gemini"
     LLM_BASE_URL: str = "http://localhost:11434"
     LLM_MODEL: str = "qwen2.5-coder:3b"
 
@@ -43,10 +43,11 @@ class Settings(BaseSettings):
     # Controla la frecuencia del bucle principal de escaneo de Smart Money.
     POLLING_INTERVAL_MINUTES: int = 1
     DEBUG_MODE: bool = True
+    PAPER_TRADING: bool = True
 
     # --- Filtros de Datos (Calidad de Señal) ---
     # Umbral mínimo de flujo de entrada en USD para considerar un token relevante.
-    MIN_INFLOW_LIMIT: float = Field(default=100_000.0)
+    MIN_INFLOW_LIMIT: float = Field(default=14_000.0)
 
     # --- Gestión de Riesgo (Risk Management) ---
     # Definición de targets de salida automática para proteger capital.
@@ -68,14 +69,14 @@ class Settings(BaseSettings):
 
     # --- Pesos del Motor de Scoring (Alpha Generation) ---
     # Distribución de relevancia para las tres dimensiones del análisis técnico/on-chain.
-    SCORE_WEIGHT_FLOW: float = 0.4           # Importancia del flujo neto (Netflow)
-    SCORE_WEIGHT_CONCENTRATION: float = 0.3  # Importancia de la acumulación (Holdings)
-    SCORE_WEIGHT_PERSISTENCE: float = 0.3    # Importancia de la actividad reciente (DEX)
+    SCORE_WEIGHT_FLOW: float = 0.3           # Importancia del flujo neto (Netflow)
+    SCORE_WEIGHT_CONCENTRATION: float = 0.5  # Importancia de la acumulación (Holdings)
+    SCORE_WEIGHT_PERSISTENCE: float = 0.2    # Importancia de la actividad reciente (DEX)
 
     # --- Umbrales de Decisión (Filtro Final) ---
     # Mínimo score requerido para autorizar una ejecución de compra.
     # PRODUCCIÓN: Usar ≥ 50. En desarrollo/debug puede bajar a 30.
-    MIN_SCORE_THRESHOLD: float = 30.0
+    MIN_SCORE_THRESHOLD: float = 50.0
     # Filtro anti-fomo: Evita entrar en activos con crecimientos explosivos inmediatos.
     MAX_PRICE_CHANGE_1H_PCT: float = 50.0
 

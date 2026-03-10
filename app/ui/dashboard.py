@@ -378,28 +378,44 @@ st.markdown(f"""
 
 
 # ==================== KPI BAR ====================
-kpi1, kpi2, kpi3 = st.columns(3)
+def format_currency(value):
+    """Aplica la directiva de Vicente: miles o millones, sin decimales."""
+    if abs(value) >= 1_000_000:
+        return f"${int(value / 1_000_000)}M"
+    if abs(value) >= 1_000:
+        return f"${int(value / 1_000)}K"
+    return f"${int(value)}"
+
+kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 with kpi1:
-    st.metric(
-        label="🎯 Take Profit",
-        value=f"{settings.TAKE_PROFIT_PCT}%",
-        delta="Objetivo activo"
-    )
+    st.metric(label="💰 Balance Total", value=format_currency(10000)) # Ejemplo
 with kpi2:
-    st.metric(
-        label="🛡️ Stop Loss",
-        value=f"{settings.STOP_LOSS_PCT}%",
-        delta="Protección"
-    )
+    # PnL Diario con color semántico pero sin ruido de decimales
+    pnl_val = run_sync(portfolio.get_daily_pnl()) or 0.0
+    st.metric(label="📈 PnL Hoy", value=format_currency(pnl_val), delta=f"{int(pnl_val)}")
 with kpi3:
-    st.metric(
-        label="📊 Max Operaciones",
-        value=settings.MAX_OPEN_TRADES,
-        delta="Posiciones permitidas"
-    )
+    st.metric(label="🎯 TP/SL Ratio", value=f"{settings.TAKE_PROFIT_PCT}/{settings.STOP_LOSS_PCT}")
+with kpi4:
+    status = "🟢 OPERANDO" if not settings.DEBUG_MODE else "🟡 SIMULACIÓN"
+    st.metric(label="🤖 Estado Bot", value=status)
 
-st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
-
+# ==================== GRÁFICO CON LÍNEA DE ENTRADA ====================
+def create_candlestick_fig(data, trade_info):
+    if not data: return None
+    df = pd.DataFrame(data, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
+    df['ts'] = pd.to_datetime(df['ts'], unit='ms')
+    
+    fig = go.Figure(data=[go.Candlestick(
+        x=df['ts'], open=df['o'], high=df['h'], low=df['l'], close=df['c'],
+        increasing_line_color='#10B981', decreasing_line_color='#EF4444'
+    )])
+    
+    # LÍNEA DE ENTRADA (Clave para Vicente)
+    fig.add_hline(y=trade_info.entry_price, line_dash="dash", 
+                  line_color="#00D4FF", annotation_text="ENTRADA")
+    
+    fig.update_layout(template='plotly_dark', height=400, margin=dict(l=0,r=0,t=30,b=0))
+    return fig
 
 # ==================== ASYNC HELPER ====================
 

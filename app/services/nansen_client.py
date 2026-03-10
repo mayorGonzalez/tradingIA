@@ -4,7 +4,7 @@ from app.core.config import settings
 from app.models.nansen import NansenResponse, SmartMoneyHolding, DexTrade
 from app.core.utils import retry_async
 from loguru import logger
-from typing import List
+from typing import List, Dict, Any
 
 class NansenClient:
     def __init__(self) -> None:
@@ -14,75 +14,86 @@ class NansenClient:
             "Content-Type": "application/json",
         }
 
+        # Lista de redes prioritarias según Vicente
+        self.supported_chains = ["ethereum", "base", "arbitrum", "avalanche", "solana", "bsc"]
+        
     @retry_async()
     async def get_smart_money_flows(
         self,
-        chain: str = "ethereum",
-        smart_money_labels: List[str] | None = None,
+        chain: str,
+        smart_money_labels: List[str] = ["Smart Trader", "Fund", "30D Smart Trader"],
     ) -> NansenResponse:
-        """Obtiene los netflows de Smart Money. 
-        
-        Filtra opcionalmente por tipo de wallet: Fund, Smart Trader, 30D Smart Trader, etc.
         """
-        url = f"{self.base_url}/smart-money/netflow"
-        payload: dict = {"chains": [chain]}
+        Obtiene Netflows con foco en etiquetas de alta convicción (Smart Money Real).
+        """
+        if chain not in self.supported_chains:
+            logger.warning(f"[Nansen] Red {chain} no testada oficialmente. Procediendo con cautela.")
         
-        # Concentración: filtrar por etiquetas premium si se especifican
-        if smart_money_labels:
-            payload["filters"] = {
+        url = f"{self.base_url}/smart-money/netflow"
+        payload: dict = {
+            "chains": [chain],
+            "filters": {
                 "include_smart_money_labels": smart_money_labels
             }
-
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(url, headers=self.headers, json=payload)
-        response.raise_for_status()
+        }
         
-        await asyncio.sleep(0.5)  # Rate-limit cortesía
-        result = NansenResponse(**response.json())
-        logger.info(f"[Nansen] Netflow: {len(result.data)} tokens (chain={chain})")
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()
+        
+        data = response.json()
+        result = NansenResponse(**data)
+        
+        # Log simplificado: Vicente no quiere ver decimales.
+        logger.info(f"[Nansen] {chain.upper()}: Detectados {len(result.data)} tokens con flujo SM.")
         return result
 
     @retry_async()
-    async def get_smart_money_holdings(
-        self,
-        chain: str = "ethereum",
-    ) -> List[SmartMoneyHolding]:
-        """Obtiene qué tokens están ACUMULANDO las wallets de Smart Money.
-        
-        Clave para confirmar que el inflow no es puntual, sino que hay posiciones sostenidas.
+    async def get_top_signals(self, chain: str) -> List[Dict[str, Any]]:
         """
-        url = f"{self.base_url}/smart-money/holdings"
-        payload = {"chains": [chain]}
-
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(url, headers=self.headers, json=payload)
-        response.raise_for_status()
+        Método de conveniencia para Gemini 1.5 Pro.
+        Cruza Holdings + DEX Trades para identificar la 'Caza de Lanzamientos'.
+        """
+        logger.info(f"[Nansen] Generando señales combinadas para {chain}...")
         
-        await asyncio.sleep(0.5)
-        raw = response.json().get("data", [])
-        holdings = [SmartMoneyHolding(**item) for item in raw]
-        logger.info(f"[Nansen] Holdings: {len(holdings)} tokens en cartera Smart Money")
-        return holdings
+        # Ejecución en paralelo para ganar velocidad
+        holdings_task = self.get_smart_money_holdings(chain)
+        trades_task = self.get_dex_trades(chain)
+        
+        holdings, trades = await asyncio.gather(holdings_task, trades_task)
+
+        # Lógica de filtrado: Tokens que aparecen en trades recientes 
+        # Y que además están en el TOP de holdings.
+        signals = []
+        trading_tokens = {t.token_symbol for t in trades}
+        
+        for h in holdings:
+            if h.token_symbol in trading_tokens:
+                signals.append({
+                    "symbol": h.token_symbol,
+                    "address": h.token_address,
+                    "sm_count": h.smart_money_wallet_count,
+                    "change_pct": h.change_7d # O la métrica de cambio disponible
+                })
+
+        return signals[:10] # Retornamos solo el TOP 10 para no saturar el análisis
 
     @retry_async()
-    async def get_dex_trades(
-        self,
-        chain: str = "ethereum",
-    ) -> List[DexTrade]:
-        """Obtiene las operaciones en DEX recientes de Smart Money.
-        
-        Permite detectar tokens que están siendo comprados activamente ahora mismo,
-        incluso si el netflow acumulado aún no es grande.
-        """
+    async def get_smart_money_holdings(self, chain: str) -> List[SmartMoneyHolding]:
+        url = f"{self.base_url}/smart-money/holdings"
+        payload = {"chains": [chain]}
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            raw = response.json().get("data", [])
+            return [SmartMoneyHolding(**item) for item in raw]
+
+    @retry_async()
+    async def get_dex_trades(self, chain: str) -> List[DexTrade]:
         url = f"{self.base_url}/smart-money/dex-trades"
         payload = {"chains": [chain]}
-
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(url, headers=self.headers, json=payload)
-        response.raise_for_status()
-
-        await asyncio.sleep(0.5)
-        raw = response.json().get("data", [])
-        trades = [DexTrade(**item) for item in raw]
-        logger.info(f"[Nansen] DEX Trades: {len(trades)} operaciones recientes")
-        return trades
+            response.raise_for_status()
+            raw = response.json().get("data", [])
+            return [DexTrade(**item) for item in raw]

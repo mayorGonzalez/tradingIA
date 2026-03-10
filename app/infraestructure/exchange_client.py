@@ -118,6 +118,20 @@ class ExchangeClient:
             if self.name == "Binance":
                 params["quoteOrderQty"] = amount_usd # Binance usa quoteOrderQty
             
+            # 1. Priorizar el Modo Lápiz (PAPER_TRADING) sobre el DEBUG técnico
+            if settings.PAPER_TRADING:
+                logger.info(f"📝 MODO LÁPIZ: Simulando compra de {formatted_symbol} por ${amount_usd} USDT")
+                return {
+                    'symbol': formatted_symbol,
+                    'status': 'simulated',
+                    'price': mock_price,
+                    'amount': amount_usd / mock_price
+                }
+
+            # 2. Solo si PAPER_TRADING es False, procedemos a la API real
+            order = await self.exchange.create_order(...)
+            
+
             # En modo DEBUG, simulamos la ejecución para no depender de la API
             if settings.DEBUG_MODE:
                 logger.info(f"🛠️ SIMULACIÓN: Orden de compra simulada para {formatted_symbol}")

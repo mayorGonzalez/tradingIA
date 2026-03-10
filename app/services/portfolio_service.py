@@ -36,17 +36,23 @@ class Trade:
         self,
         id: int,
         token_symbol: str,
+        token_address: str, # Fundamental para DEX
+        chain: str,
         entry_price: float,
         amount_usd: float,
         status: str = "OPEN",
+        partial_exit_done: bool = False,
         entry_date: Optional[datetime] = None,
         exit_price: Optional[float] = None,
     ):
         self.id = id
         self.token_symbol = token_symbol
+        self.token_address = token_address
+        self.chain = chain
         self.entry_price = entry_price
         self.amount_usd = amount_usd
         self.status = status
+        self.partial_exit_done = partial_exit_done
         self.entry_date = entry_date or datetime.now(timezone.utc)
         self.exit_price = exit_price
         # PnL porcentual calculado en tiempo real por ExitManager
@@ -191,9 +197,45 @@ class PortfolioService:
     # Operaciones de escritura
     # ------------------------------------------------------------------ #
 
+    async def get_total_equity(self, current_prices: dict[str, float]) -> float:
+        """
+        Calcula Balance + PnL No Realizado. 
+        Vital para el CircuitBreaker de Vicente.
+        """
+        open_trades = await self.get_open_trades()
+        unrealized_pnl = 0.0
+        
+        for t in open_trades:
+            cur_price = current_prices.get(t.token_symbol, t.entry_price)
+            base_amount = t.amount_usd / t.entry_price
+            unrealized_pnl += (cur_price - t.entry_price) * base_amount
+            
+        # Supongamos que el balance inicial es constante o viene de settings
+        return settings.INITIAL_BALANCE + unrealized_pnl
+
+    async def mark_partial_exit(self, trade_id: int) -> bool:
+        """Persiste que se ha ejecutado el TP del 50%."""
+        try:
+            async with self._session_factory() as session:
+                async with session.begin():
+                    result = await session.execute(
+                        select(DBTrade).where(DBTrade.id == trade_id)
+                    )
+                    trade = result.scalar_one_or_none()
+                    if trade:
+                        trade.partial_exit_done = True
+                        # Reducimos el amount_usd a la mitad para que el PnL siga cuadrando
+                        trade.amount_usd = float(trade.amount_usd) * 0.5
+                        return True
+        except Exception as e:
+            logger.error(f"[DB] Error marcando salida parcial: {e}")
+            return False
+
     async def save_trade(
         self,
         token_symbol: str,
+        token_address: str,
+        chain: str,
         entry_price: float,
         amount_usd: float,
     ) -> bool:
@@ -213,9 +255,12 @@ class PortfolioService:
                 async with session.begin():
                     new_trade = DBTrade(
                         token_symbol=token_symbol,
+                        token_address=token_address,
+                        chain=chain,
                         entry_price=entry_price,
                         amount_usd=amount_usd,
                         status=TradeStatus.OPEN.value,
+                        created_at=datetime.now(timezone.utc)
                     )
                     session.add(new_trade)
             logger.info(f"[Portfolio] ✅ Trade guardado: {token_symbol} @ ${entry_price:.4f} (${amount_usd:.2f})")

@@ -67,14 +67,19 @@ class SignalResult(BaseModel):
     token_symbol: str
     score: float
     net_flow_usd: float
-    # Datos de enriquecimiento multifuente
+
+    concentration_pct: float = 0.0  # El % del Top 100 que vimos en la foto
+    is_paper_trade: bool = True
+    # --- Enriquecimiento ---
     holders_count: int = 0
     dex_buy_count: int = 0
     trend_confirmed_7d: bool = False
     price_change_1h: Optional[float] = None
     risk_factors: List[str] = Field(default_factory=list)
+    
+    # El "porqué" que pide Vicente
+    reasoning: str = "" 
     is_valid: bool = False
-
 
 class NansenPaginatedResponse(BaseModel):
     """Respuesta paginada genérica de Nansen"""
