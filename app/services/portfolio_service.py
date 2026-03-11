@@ -114,6 +114,20 @@ class PortfolioService:
             logger.error(f"[Portfolio] Error al obtener trades abiertos: {exc}")
             return []
 
+    async def get_current_exposure(self) -> float:
+        """
+        FIX: Método que faltaba — requerido por main.py STEP 5.
+        Suma el amount_usd de todos los trades OPEN.
+        """
+        try:
+            open_trades = await self.get_open_trades()
+            total = sum(t.amount_usd for t in open_trades)
+            logger.debug(f"[Portfolio] Exposición actual: ${total:.2f} ({len(open_trades)} trades abiertos)")
+            return total
+        except Exception as exc:
+            logger.error(f"[Portfolio] Error al calcular exposición actual: {exc}")
+            return 0.0
+
     async def get_daily_pnl(self) -> float:
         """
         Calcula el PnL total acumulado de trades CERRADOS hoy (UTC).

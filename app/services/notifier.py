@@ -11,7 +11,7 @@ class TelegramNotifier:
     """
     def __init__(self, token: str | None = None, chat_id: str | None = None) -> None:
         # Prioridad a los argumentos, fallback a settings
-        self.token = token or settings.TELEGRAM_TOKEN.get_secret_value()
+        self.token = token or settings.TELEGRAM_TOKEN
         self.chat_id = chat_id or settings.TELEGRAM_CHAT_ID
         self.bot = Bot(token=self.token)
         

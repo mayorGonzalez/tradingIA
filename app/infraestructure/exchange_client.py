@@ -163,9 +163,10 @@ class ExchangeClient:
         """
         try:
             formatted_symbol = f"{symbol}/USDT" if "/" not in symbol else symbol
+
+            mock_price = await self.fetch_ticker(formatted_symbol)
             # 1. Priorizar el Modo Lápiz (PAPER_TRADING) sobre el DEBUG técnico
             if settings.PAPER_TRADING:
-                mock_price = await self.fetch_ticker(formatted_symbol)
                 logger.info(f"📝 MODO LÁPIZ: Simulando venta de {formatted_symbol} | Cantidad: {amount}")
                 return {
                     'symbol': formatted_symbol,

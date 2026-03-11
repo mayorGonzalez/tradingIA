@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from loguru import logger
 from typing import List, Dict, TYPE_CHECKING
-
+from dataclasses import dataclass
 from app.core.config import settings
 from app.services.llm_provider import OllamaProvider, GeminiProvider
 
@@ -47,6 +47,15 @@ que se detallan a continuación. No son datos personales, son parámetros operat
 4. No digas que no tienes acceso a transacciones; los datos arriba SON las transacciones.
 """
 
+@dataclass
+class AIVerdict:
+    """
+    FIX: Clase que faltaba. main.py llama a ai_analyst.analyze_opportunity(signal)
+    y espera .is_bullish, .reason y .summary. Sin esto → AttributeError en producción.
+    """
+    is_bullish: bool
+    reason: str
+    summary: str
 
 class AIAnalyst:
     """Servicio de análisis de mercado con soporte múltiple de LLM."""
@@ -95,11 +104,12 @@ class AIAnalyst:
         prompt = user_prompt.strip()
         
         # LOG de depuración para dashboard
-        try:
-            with open("dashboard_debug.log", "a", encoding="utf-8") as f:
-                f.write(f"[{datetime.now().strftime('%H:%M:%S')}] ANALYZING: '{prompt}'\n")
-        except Exception as e:
-            logger.error(f"Error escribiendo debug log: {e}")
+        if settings.DEBUG_MODE:
+            try:
+                with open("dashboard_debug.log", "a", encoding="utf-8") as f:
+                    f.write(f"[{datetime.now().strftime('%H:%M:%S')}] ANALYZING: '{prompt}'\n")
+            except Exception as e:
+                logger.error(f"Error escribiendo debug log: {e}")
 
         # Detección insensible a mayúsculas y espacios extras
         clean_cmd = prompt.lower().split()
@@ -160,7 +170,7 @@ class AIAnalyst:
             return f"❌ Error de procesamiento: {str(e)}"
 
     async def _fetch_context(self) -> tuple[str, str, str]:
-        """FIX: Devolver 3 valores (nansen_ctx, trades_ctx, signals_ctx)"""
+        """Recopila datos de Nansen y Portfolio para el prompt."""
         from app.services.nansen_client import NansenClient
         from app.services.nansen_mock import NansenMockClient
         from app.services.portfolio_service import PortfolioService
@@ -182,10 +192,18 @@ class AIAnalyst:
 
             logger.info(f"[AIAnalyst] Trades encontrados en DB: {len(open_trades)}")
 
+            def format_currency(value: float) -> str:
+                """Ajuste al estilo Vicente: Millones o Miles sin decimales."""
+                if value >= 1_000_000:
+                    return f"{value / 1_000_000:.1f}M"
+                if value >= 1_000:
+                    return f"{value / 1_000:.0f}K"
+                return f"{value:.0f}"
+
             n_lines = []
             if raw_flows and hasattr(raw_flows, 'data'):
                 for f in raw_flows.data[:8]:
-                    n_lines.append(f"• {f.token_symbol}: Netflow 24h=${f.net_flow_usd:,.0f} | Traders: {f.trader_count}")
+                    n_lines.append(f"• {f.token_symbol}: Netflow 24h=${format_currency(f.net_flow_usd)} | Traders: {f.trader_count}")
             
             t_lines = []
             for t in open_trades:
@@ -200,13 +218,34 @@ class AIAnalyst:
             logger.error(f"[AIAnalyst] Error en _fetch_context: {e}")
             return "Error técnico", "Error técnico", "Error técnico"
 
-        def format_currency(value: float) -> str:
-            """Ajuste al estilo Vicente: Millones o Miles sin decimales."""
-            if value >= 1_000_000:
-                return f"{value / 1_000_000:.1f}M"
-            if value >= 1_000:
-                return f"{value / 1_000:.0f}K"
-            return f"{value:.0f}"
+    async def analyze_opportunity(self, signal: "SignalResult") -> AIVerdict:
+        """Analiza una oportunidad de trading con el LLM."""
+        if settings.DEBUG_MODE or settings.PAPER_TRADING:
+            logger.debug(f"[AIAnalyst] DEBUG: aprobando automáticamente {signal.token_symbol}")
+            return AIVerdict(
+                is_bullish=True,
+                reason="Modo DEBUG/PAPER: análisis IA omitido",
+                summary=f"Score={signal.score:.0f} | Flujo=${signal.net_flow_usd:,.0f}"
+            )
 
-        # En _fetch_context cambia la línea:
-        n_lines.append(f"• {f.token_symbol}: Netflow 24h=${format_currency(f.net_flow_usd)} | Traders: {f.trader_count}")
+        prompt = (
+            f"Analiza esta oportunidad y responde SOLO con JSON:\n"
+            f"Token: {signal.token_symbol}\nScore: {signal.score:.1f}/100\n"
+            f"Netflow 24h: ${signal.net_flow_usd:,.0f}\nTraders: {signal.trader_count}\n"
+            f"Riesgos: {', '.join(signal.risk_factors) or 'ninguno'}\n"
+            f"Cambio 1h: {signal.price_change_1h or 0:.1f}%\n"
+            f'{{"is_bullish": true/false, "reason": "...", "summary": "..."}}'
+        )
+
+        try:
+            response = await self.provider.chat(prompt, [])
+            import json
+            data = json.loads(response.strip().strip("```json").strip("```").strip())
+            return AIVerdict(
+                is_bullish=bool(data.get("is_bullish", False)),
+                reason=str(data.get("reason", "Sin razón")),
+                summary=str(data.get("summary", ""))
+            )
+        except Exception as e:
+            logger.warning(f"[AIAnalyst] Error parseando veredicto para {signal.token_symbol}: {e}")
+            return AIVerdict(is_bullish=False, reason=f"Error LLM: {e}", summary="")
