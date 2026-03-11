@@ -163,6 +163,29 @@ class ExchangeClient:
         """
         try:
             formatted_symbol = f"{symbol}/USDT" if "/" not in symbol else symbol
+            # 1. Priorizar el Modo Lápiz (PAPER_TRADING) sobre el DEBUG técnico
+            if settings.PAPER_TRADING:
+                mock_price = await self.fetch_ticker(formatted_symbol)
+                logger.info(f"📝 MODO LÁPIZ: Simulando venta de {formatted_symbol} | Cantidad: {amount}")
+                return {
+                    'symbol': formatted_symbol,
+                    'status': 'simulated',
+                    'price': mock_price,
+                    'amount': amount
+                }
+            # En modo DEBUG, simulamos la ejecución para no depender de la API
+            if settings.DEBUG_MODE:
+                logger.info(f"🛠️ SIMULACIÓN: Orden de venta simulada para {formatted_symbol}")
+                return {
+                    'symbol': formatted_symbol,
+                    'type': 'market',
+                    'side': 'sell',
+                    'amount': amount,
+                    'price': mock_price,
+                    'average': mock_price,
+                    'status': 'closed'
+                }
+
             # En ventas, liquidamos la cantidad de tokens acumulados (base amount)
             order = await self.exchange.create_market_sell_order(formatted_symbol, amount)
             logger.success(f"ORDEN DE VENTA {self.name} EJECUTADA: {formatted_symbol} | Cantidad: {amount}")

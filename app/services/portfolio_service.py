@@ -1,10 +1,10 @@
 """
 PortfolioService — Gestión de Posiciones de Trading
 =====================================================
-Actúa como capa de abstracción sobre la base de datos SQLite.
+Actúa como capa de abstracción sobre la base de datos PostgreSQL.
 
 Estado actual:
-  - get_open_trades / save_trade / close_trade → usan DB real (SQLite async)
+  - get_open_trades / save_trade / close_trade → usan DB real (PostgreSQL async)
   - get_daily_pnl                              → usa DB real
   - check_persistence                          → usa DB real
   - get_portfolio_stats                        → calcula sobre DB
@@ -82,7 +82,7 @@ class PortfolioService:
     """
     Servicio de gestión del portfolio.
 
-    Todas las operaciones son asíncronas y transaccionales sobre SQLite.
+    Todas las operaciones son asíncronas y transaccionales sobre PostgreSQL.
     En entornos de test, los métodos `_inject_mock_trades` permiten inyectar
     datos sin tocar la DB.
     """
