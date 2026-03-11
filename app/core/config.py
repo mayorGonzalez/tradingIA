@@ -88,6 +88,8 @@ class Settings(BaseSettings):
     TELEGRAM_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
 
+    INITIAL_BALANCE: float = 1000.0
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

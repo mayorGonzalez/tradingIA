@@ -64,6 +64,8 @@ class Trade:
         return cls(
             id=db_trade.id,
             token_symbol=db_trade.token_symbol,
+            token_address=db_trade.token_address,
+            chain=db_trade.chain,
             entry_price=float(db_trade.entry_price),
             amount_usd=float(db_trade.amount_usd),
             status=db_trade.status,

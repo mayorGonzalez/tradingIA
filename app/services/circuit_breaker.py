@@ -9,20 +9,20 @@ Condiciones que ABREN el circuito (bloquean nuevas operaciones):
   3. Error inesperado al consultar el portfolio (falla por defecto → seguro).
 
 Cálculo de Drawdown:
-    drawdown_threshold_usd = -(usdt_balance × MAX_DAILY_DRAWDOWN_PCT / 100)
-    Si daily_pnl < drawdown_threshold_usd → circuito abierto.
+    drawdown_threshold_usd = total_equity × MAX_DAILY_DRAWDOWN_PCT / 100
+    Si daily_pnl < -drawdown_threshold_usd → circuito abierto.
 
-    Ejemplo: balance=10.000$, MAX_DAILY_DRAWDOWN_PCT=5
+    Ejemplo: equity=10.000$, MAX_DAILY_DRAWDOWN_PCT=5
     → Límite = -500$. Si el bot pierde >500$ en el día, se detiene.
 
 Duración del bloqueo:
     El circuito permanece abierto durante CIRCUIT_BREAK_DURATION_MINUTES (por
-    defecto 60 min) para evitar re-activación inmediata del bot en el mismo ciclo.
-    Solo una instancia nueva del bot (o reinicio) resetea el temporizador.
+    defecto 60 min). Solo una instancia nueva del bot (o reinicio) resetea el
+    temporizador.
 
 Parámetros configurables (ver app/core/config.py):
-    MAX_DAILY_DRAWDOWN_PCT       — % máximo de pérdida sobre balance disponible
-    MAX_OPEN_TRADES              — número máximo de posiciones abiertas en paralelo
+    MAX_DAILY_DRAWDOWN_PCT         — % máximo de pérdida sobre equity total
+    MAX_OPEN_TRADES                — número máximo de posiciones abiertas en paralelo
     CIRCUIT_BREAK_DURATION_MINUTES — duración del bloqueo tras activar el breaker
 """
 
@@ -38,7 +38,7 @@ class CircuitBreaker:
 
     Uso:
         breaker = CircuitBreaker()
-        if await breaker.is_open(portfolio, usdt_balance):
+        if await breaker.is_open(portfolio, total_equity):
             return  # NO operar
     """
 
@@ -59,7 +59,8 @@ class CircuitBreaker:
                                       settings.CIRCUIT_BREAK_DURATION_MINUTES.
         """
         self.max_daily_drawdown_pct: float = (
-            max_daily_drawdown_pct if max_daily_drawdown_pct is not None 
+            max_daily_drawdown_pct
+            if max_daily_drawdown_pct is not None
             else settings.MAX_DAILY_DRAWDOWN_PCT
         )
         self.max_open_trades: int = max_open_trades or settings.MAX_OPEN_TRADES
@@ -69,8 +70,9 @@ class CircuitBreaker:
 
         self._tripped_at: datetime | None = None
         self._trip_reason: str = ""
-        # Referencia para el drawdown diario (se resetea cada 24h)
-        self._last_reset_day: int = datetime.now(timezone.utc).day  # (para logs)
+        # FIX: guardamos la fecha completa, no solo el día del mes,
+        # para evitar falsos resets (ej. día 5 de enero vs día 5 de febrero)
+        self._last_reset_date: datetime.date = datetime.now(timezone.utc).date()
 
     # ------------------------------------------------------------------ #
     # Interfaz pública
@@ -78,38 +80,49 @@ class CircuitBreaker:
 
     async def is_open(self, portfolio: PortfolioService, total_equity_usd: float) -> bool:
         """
-        Evalúa el estado del circuito. 
-        total_equity_usd debe ser la suma de Balance + PnL Flotante de todas las chains.
+        Evalúa el estado del circuito.
+
+        Args:
+            portfolio:        Instancia del servicio de portfolio.
+            total_equity_usd: Equity total (Balance + PnL flotante de todas las chains).
+
+        Returns:
+            True si el circuito está abierto (NO operar), False si está cerrado (operar).
         """
-        # Reset diario del estado de alerta si ha pasado el día
-        current_day = datetime.now(timezone.utc).day
-        if current_day != self._last_reset_day:
+        # FIX: comparar fecha completa (año+mes+día) en lugar de solo .day (1-31)
+        current_date = datetime.now(timezone.utc).date()
+        if current_date != self._last_reset_date:
             self.reset()
-            self._last_reset_day = current_day
+            self._last_reset_date = current_date
 
         if self._is_still_tripped():
             remaining = self._remaining_block_time()
-            logger.warning(f"[CircuitBreaker] 🔴 BLOQUEADO. Motivo: {self._trip_reason}. Restan {int(remaining)} min.")
+            logger.warning(
+                f"[CircuitBreaker] 🔴 BLOQUEADO. "
+                f"Motivo: {self._trip_reason}. "
+                f"Restan {int(remaining)} min."
+            )
             return True
 
         try:
-            # 1. Límite de posiciones (Multichain)
-            open_trades = await portfolio.get_open_trades() # Debe devolver total de todas las chains
+            # 1. Límite de posiciones simultáneas
+            open_trades = await portfolio.get_open_trades()
             if len(open_trades) >= self.max_open_trades:
-                self._trip(f"Capacidad máxima: {len(open_trades)} posiciones.")
+                self._trip(f"Capacidad máxima: {len(open_trades)} posiciones abiertas.")
+                logger.warning(f"[CircuitBreaker] 🔴 {self._trip_reason}")
                 return True
 
-            # 2. Drawdown Diario Real
-            # Calculamos sobre el Equity Total para ser objetivos
+            # 2. Drawdown diario real
+            # FIX: el límite se calcula sobre total_equity_usd, no sobre el balance USDT puro,
+            # para reflejar el valor real de la cartera incluyendo posiciones abiertas.
             daily_pnl = await portfolio.get_daily_pnl()
-            
-            # Directiva: Números en miles/millones para el log, sin decimales irrelevantes
-            limit_usd = int(total_equity_usd * self.max_daily_drawdown_pct / 100.0)
-            
-            if abs(daily_pnl) > limit_usd and daily_pnl < 0:
+            limit_usd = total_equity_usd * self.max_daily_drawdown_pct / 100.0
+
+            if daily_pnl < 0 and abs(daily_pnl) > limit_usd:
                 self._trip(
-                    f"Drawdown superado: Perdida de {int(abs(daily_pnl))} USD "
-                    f"sobre límite de {limit_usd} USD ({self.max_daily_drawdown_pct}%)."
+                    f"Drawdown superado: pérdida de ${abs(daily_pnl):,.0f} "
+                    f"sobre límite de ${limit_usd:,.0f} "
+                    f"({self.max_daily_drawdown_pct}% de equity)."
                 )
                 logger.critical(f"[CircuitBreaker] 🔴 STOP OPERATIVO: {self._trip_reason}")
                 return True
@@ -117,11 +130,11 @@ class CircuitBreaker:
             return False
 
         except Exception as exc:
-            # Error = Parada de seguridad (Fail-safe)
-            self._trip(f"Fallo en sensor de portfolio: {str(exc)}")
+            # Fail-safe: ante cualquier error en los sensores, bloqueamos operaciones
+            self._trip(f"Fallo en sensor de portfolio: {exc}")
+            logger.error(f"[CircuitBreaker] 🔴 Error inesperado, circuito abierto: {exc}")
             return True
 
-    
     # ------------------------------------------------------------------ #
     # Métodos privados
     # ------------------------------------------------------------------ #
@@ -132,22 +145,29 @@ class CircuitBreaker:
         self._trip_reason = reason
 
     def _is_still_tripped(self) -> bool:
-        if self._tripped_at is None: return False
+        """Devuelve True si el circuito sigue activo (dentro del periodo de bloqueo)."""
+        if self._tripped_at is None:
+            return False
         return (datetime.now(timezone.utc) - self._tripped_at) < self.break_duration
 
     def _remaining_block_time(self) -> float:
-        """Devuelve los minutos restantes de bloqueo (0 si el circuito ya expiró)."""
+        """Devuelve los minutos restantes de bloqueo. 0.0 si el circuito ya expiró."""
         if self._tripped_at is None:
             return 0.0
         elapsed = datetime.now(timezone.utc) - self._tripped_at
         remaining = self.break_duration - elapsed
         return max(0.0, remaining.total_seconds() / 60.0)
 
+    # ------------------------------------------------------------------ #
+    # Gestión manual
+    # ------------------------------------------------------------------ #
+
     def reset(self) -> None:
-            """
-            Resetea manualmente el estado del breaker.
-            Usar con precaución: solo en operaciones de mantenimiento o tests.
-            """
-            self._tripped_at = None
-            self._trip_reason = ""
-            logger.info("[CircuitBreaker] Circuito reseteado manualmente.")
+        """
+        Resetea manualmente el estado del breaker.
+        Se llama automáticamente al detectar un nuevo día.
+        Usar con precaución en producción: solo para mantenimiento o tests.
+        """
+        self._tripped_at = None
+        self._trip_reason = ""
+        logger.info("[CircuitBreaker] ✅ Circuito reseteado.")

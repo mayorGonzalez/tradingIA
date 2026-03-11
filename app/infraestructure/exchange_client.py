@@ -128,10 +128,7 @@ class ExchangeClient:
                     'amount': amount_usd / mock_price
                 }
 
-            # 2. Solo si PAPER_TRADING es False, procedemos a la API real
-            order = await self.exchange.create_order(...)
-            
-
+           
             # En modo DEBUG, simulamos la ejecución para no depender de la API
             if settings.DEBUG_MODE:
                 logger.info(f"🛠️ SIMULACIÓN: Orden de compra simulada para {formatted_symbol}")
