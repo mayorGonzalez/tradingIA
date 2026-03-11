@@ -64,14 +64,15 @@ class Trade:
         return cls(
             id=db_trade.id,
             token_symbol=db_trade.token_symbol,
-            token_address=db_trade.token_address,
-            chain=db_trade.chain,
+            token_address=getattr(db_trade, "token_address", None) or "",
+            chain=getattr(db_trade, "chain", None) or "unknown",
             entry_price=float(db_trade.entry_price),
             amount_usd=float(db_trade.amount_usd),
             status=db_trade.status,
+            partial_exit_done=getattr(db_trade, "partial_exit_done", False) or False,
             entry_date=db_trade.created_at,
             exit_price=float(db_trade.exit_price) if db_trade.exit_price else None,
-        )
+    )
 
 
 # --------------------------------------------------------------------------- #
