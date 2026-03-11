@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum as PyEnum
-from sqlalchemy import String, Float, DateTime, func, Index
+from sqlalchemy import String, Float, DateTime, func, Index, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 from typing import Optional
 
