@@ -88,7 +88,7 @@ class PortfolioService:
     """
 
     def __init__(self) -> None:
-        self._session_factory = async_session_factory
+        self._session_factory = get_session_factory()
         logger.info("✓ PortfolioService inicializado (modo DB real)")
 
     # ------------------------------------------------------------------ #
