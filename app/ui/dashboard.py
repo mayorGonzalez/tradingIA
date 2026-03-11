@@ -378,6 +378,15 @@ st.markdown(f"""
 
 
 # ==================== KPI BAR ====================
+def run_sync(coro):
+    """Ejecuta una corrutina de forma síncrona dentro del loop de Streamlit."""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
 def format_currency(value):
     """Aplica la directiva de Vicente: miles o millones, sin decimales."""
     if abs(value) >= 1_000_000:
@@ -385,6 +394,9 @@ def format_currency(value):
     if abs(value) >= 1_000:
         return f"${int(value / 1_000)}K"
     return f"${int(value)}"
+
+# Initialize services needed for KPIs
+portfolio = PortfolioService()
 
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 with kpi1:
@@ -417,16 +429,7 @@ def create_candlestick_fig(data, trade_info):
     fig.update_layout(template='plotly_dark', height=400, margin=dict(l=0,r=0,t=30,b=0))
     return fig
 
-# ==================== ASYNC HELPER ====================
 
-def run_sync(coro):
-    """Ejecuta una corrutina de forma síncrona dentro del loop de Streamlit."""
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
 
 # ==================== TABS ====================
 tab1, tab2, tab3 = st.tabs(["🤖  Asistente IA", "📊  Smart Money", "💼  Cartera"])
@@ -525,7 +528,6 @@ with tab3:
     st.markdown("<div class='section-subtitle'>Posiciones abiertas y estado de la cartera.</div>", unsafe_allow_html=True)
 
     try:
-        portfolio = PortfolioService()
         trades = run_sync(portfolio.get_open_trades())
         daily_pnl = run_sync(portfolio.get_daily_pnl()) or 0.0
 
