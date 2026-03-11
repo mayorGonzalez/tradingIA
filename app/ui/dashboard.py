@@ -247,38 +247,6 @@ async def fetch_ohlcv_data(symbol):
         logger.error(f"Error fetching OHLCV for chart: {e}")
         return None
 
-def create_candlestick_fig(data, symbol):
-    if not data: return None
-    df = pd.DataFrame(data, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
-    df['ts'] = pd.to_datetime(df['ts'], unit='ms')
-    
-    fig = go.Figure(data=[go.Candlestick(
-        x=df['ts'],
-        open=df['o'], high=df['h'],
-        low=df['l'], close=df['c'],
-        increasing_line_color='#10B981', decreasing_line_color='#EF4444'
-    )])
-    
-    fig.add_trace(go.Bar(
-        x=df['ts'], y=df['v'], 
-        name="Volume", 
-        marker_color='rgba(0,212,255,0.2)',
-        yaxis='y2'
-    ))
-    
-    fig.update_layout(
-        template='plotly_dark',
-        title=f"Acción del Precio: {symbol}",
-        xaxis_rangeslider_visible=False,
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        yaxis=dict(title="Precio (USDT)", side="left"),
-        yaxis2=dict(title="Volumen", overlaying='y', side='right', showgrid=False),
-        margin=dict(l=0, r=0, t=50, b=0),
-        height=350,
-        hovermode='x unified'
-    )
-    return fig
 
 # ==================== SESSION STATE ====================
 if "chat_history" not in st.session_state:
@@ -413,20 +381,47 @@ with kpi4:
 
 # ==================== GRÁFICO CON LÍNEA DE ENTRADA ====================
 def create_candlestick_fig(data, trade_info):
+    """
+    Crea un gráfico de velas con volumen y línea de entrada.
+    trade_info puede ser un objeto Trade (con .entry_price) o un string (solo símbolo).
+    """
     if not data: return None
     df = pd.DataFrame(data, columns=['ts', 'o', 'h', 'l', 'c', 'v'])
     df['ts'] = pd.to_datetime(df['ts'], unit='ms')
     
+    symbol = getattr(trade_info, 'token_symbol', str(trade_info))
+    
     fig = go.Figure(data=[go.Candlestick(
         x=df['ts'], open=df['o'], high=df['h'], low=df['l'], close=df['c'],
+        name=symbol,
         increasing_line_color='#10B981', decreasing_line_color='#EF4444'
     )])
     
-    # LÍNEA DE ENTRADA (Clave para Vicente)
-    fig.add_hline(y=trade_info.entry_price, line_dash="dash", 
-                  line_color="#00D4FF", annotation_text="ENTRADA")
+    # Volumen (Eje Y2)
+    fig.add_trace(go.Bar(
+        x=df['ts'], y=df['v'], 
+        name="Volumen", 
+        marker_color='rgba(0,212,255,0.15)',
+        yaxis='y2'
+    ))
     
-    fig.update_layout(template='plotly_dark', height=400, margin=dict(l=0,r=0,t=30,b=0))
+    # LÍNEA DE ENTRADA (Clave para Vicente)
+    if hasattr(trade_info, 'entry_price'):
+        fig.add_hline(y=trade_info.entry_price, line_dash="dash", 
+                      line_color="#00D4FF", annotation_text=f"ENTRADA: ${trade_info.entry_price:,.2f}")
+    
+    fig.update_layout(
+        template='plotly_dark',
+        title=f"Gráfico de Posición: {symbol}",
+        xaxis_rangeslider_visible=False,
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        yaxis=dict(title="Precio (USDT)", side="left"),
+        yaxis2=dict(title="Volumen", overlaying='y', side='right', showgrid=False),
+        margin=dict(l=0, r=0, t=50, b=0),
+        height=400,
+        hovermode='x unified'
+    )
     return fig
 
 
@@ -545,9 +540,10 @@ with tab3:
         with pc2:
             if trades:
                 selected_symbol = st.selectbox("Analizar Posición:", [t.token_symbol for t in trades])
+                selected_trade = next(t for t in trades if t.token_symbol == selected_symbol)
                 ohlcv = run_sync(fetch_ohlcv_data(selected_symbol))
                 if ohlcv:
-                    st.plotly_chart(create_candlestick_fig(ohlcv, selected_symbol), use_container_width=True)
+                    st.plotly_chart(create_candlestick_fig(ohlcv, selected_trade), use_container_width=True)
             else:
                 st.info("💼 Cartera vacía — No hay trades activos para graficar.")
 
