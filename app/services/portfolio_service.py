@@ -21,7 +21,7 @@ from typing import List, Optional
 from loguru import logger
 from sqlalchemy import and_, select
 
-from app.infraestructure.database import async_session_factory
+from app.infraestructure.database import get_session_factory
 from app.models.db_models import Trade as DBTrade, TradeStatus
 
 
