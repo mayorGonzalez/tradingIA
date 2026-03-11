@@ -68,166 +68,93 @@ class NansenMockClient:
             # 1. Bitcoin - Tendencia Alcista Sostenida (BUY SIGNAL)
             SmartMoneyFlow(
                 token_symbol="BTC",
-                total_value_usd=450_000_000.0,
-                value_usd=450_000_000.0,
                 token_address=addr_btc,
                 chain="bitcoin",
-                wallet_count=47,
-                percentage_of_holdings=35.2,
-                entry_timestamp=int((datetime.now(timezone.utc) - timedelta(days=120)).timestamp()),
-                avg_entry_price=62_500.0,
-                current_pnl_percent=9.2,
-                metadata={
-                    "pattern": "bullish_accumulation",
-                    "confidence": 0.92,
-                    "risk_factors": [],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                }
+                net_flow_usd=5_200_000.0,
+                net_flow_7d_usd=45_000_000.0,
+                trader_count=47,
+                market_cap_usd=1_200_000_000_000.0,
+                labels=["Exchange", "Whale"]
             ),
 
             # 2. Ethereum - Acumulación Gradual (ENTRY SIGNAL)
             SmartMoneyFlow(
                 token_symbol="ETH",
-                total_value_usd=280_000_000.0,
-                value_usd=280_000_000.0,
                 token_address=addr_eth,
                 chain="ethereum",
-                wallet_count=35,
-                percentage_of_holdings=21.8,
-                entry_timestamp=int((datetime.now(timezone.utc) - timedelta(days=95)).timestamp()),
-                avg_entry_price=2_100.0,
-                current_pnl_percent=12.5,
-                metadata={
-                    "pattern": "accumulation_phase",
-                    "confidence": 0.85,
-                    "risk_factors": ["low_volume"],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                }
+                net_flow_usd=3_100_000.0,
+                net_flow_7d_usd=28_000_000.0,
+                trader_count=35,
+                market_cap_usd=280_000_000_000.0,
+                labels=["Funds", "Smart Money"]
             ),
 
             # 3. Solana - Distribución de Smart Money (AVOID SIGNAL)
             SmartMoneyFlow(
                 token_symbol="SOL",
-                total_value_usd=180_000_000.0,
-                value_usd=180_000_000.0,
                 token_address=addr_sol,
                 chain="solana",
-                wallet_count=22,
-                percentage_of_holdings=18.5,
-                entry_timestamp=int((datetime.now(timezone.utc) - timedelta(days=78)).timestamp()),
-                avg_entry_price=145.0,
-                current_pnl_percent=-4.2,
-                metadata={
-                    "pattern": "distribution_phase",
-                    "confidence": 0.78,
-                    "risk_factors": ["sell_pressure", "large_outflows"],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                }
+                net_flow_usd=-2_400_000.0,
+                net_flow_7d_usd=15_000_000.0,
+                trader_count=22,
+                market_cap_usd=65_000_000_000.0,
+                labels=["Whale"]
             ),
 
             # 4. XRP - Tendencia Bajista (REJECT SIGNAL)
             SmartMoneyFlow(
                 token_symbol="XRP",
-                total_value_usd=95_000_000.0,
-                value_usd=95_000_000.0,
                 token_address=addr_xrp,
                 chain="ripple",
-                metadata={
-                    "pattern": "distribution_phase",
-                    "confidence": 0.78,
-                    "risk_factors": ["sell_pressure", "large_outflows"],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                }
-            ),
-
-            # 4. XRP - Tendencia Bajista (REJECT SIGNAL)
-            SmartMoneyFlow(
-                token_symbol="XRP",
                 net_flow_usd=-4_300_000.0,
                 net_flow_7d_usd=-22_100_000.0,
                 trader_count=8,
-                exchange_netflow=2_800_000.0,
-                whales_accumulating=0,
-                chain="ripple",
-                token_address=addr_xrp,
-                metadata={
-                    "pattern": "bearish_downtrend",
-                    "confidence": 0.88,
-                    "risk_factors": ["negative_flow", "whale_selling", "high_outflow"],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                }
+                market_cap_usd=35_000_000_000.0
             ),
+
 
             # 5. Dogecoin - Patrón Volátil (RISKY)
             SmartMoneyFlow(
                 token_symbol="DOGE",
-                net_flow_usd=1_800_000.0,      # Inflow pero volatile
-                net_flow_7d_usd=-3_200_000.0,  # Negativo en 7 días (reversal)
-                trader_count=18,
-                exchange_netflow=600_000.0,
-                whales_accumulating=2,
-                chain="dogecoin",
                 token_address=addr_doge,
-                    metadata={
-                    "pattern": "volatile_fomo",
-                    "confidence": 0.45,  # Baja confianza
-                    "risk_factors": ["extreme_volatility", "retail_driven", "low_whale_interest"],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                }
+                chain="dogecoin",
+                net_flow_usd=1_800_000.0,
+                net_flow_7d_usd=-3_200_000.0,
+                trader_count=18,
+                market_cap_usd=22_000_000_000.0
             ),
 
             # 6. Avalanche - Patrón Neutral (WAIT SIGNAL)
             SmartMoneyFlow(
                 token_symbol="AVAX",
+                token_address=addr_avax,
+                chain="avalanche",
                 net_flow_usd=450_000.0,
                 net_flow_7d_usd=1_200_000.0,
                 trader_count=12,
-                exchange_netflow=-200_000.0,
-                whales_accumulating=1,
-                chain="avalanche",
-                token_address=addr_avax,
-                metadata={
-                    "pattern": "consolidation",
-                    "confidence": 0.65,
-                    "risk_factors": ["low_volume", "indecisive"],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                }
+                market_cap_usd=12_000_000_000.0
             ),
 
             # 7. Chainlink - Acumulación Silenciosa (HIDDEN GEM)
             SmartMoneyFlow(
                 token_symbol="LINK",
+                token_address=addr_link,
+                chain="chainlink",
                 net_flow_usd=2_750_000.0,
                 net_flow_7d_usd=14_500_000.0,
                 trader_count=29,
-                exchange_netflow=-1_100_000.0,
-                whales_accumulating=7,
-                chain="chainlink",
-                token_address=addr_link,
-                metadata={
-                    "pattern": "quiet_accumulation",
-                    "confidence": 0.82,
-                    "risk_factors": [],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                }
+                market_cap_usd=10_000_000_000.0
             ),
 
             # 8. Polygon - Pequeño pump (CAUTION)
             SmartMoneyFlow(
                 token_symbol="MATIC",
+                token_address=addr_matic,
+                chain="polygon",
                 net_flow_usd=950_000.0,
                 net_flow_7d_usd=2_100_000.0,
                 trader_count=15,
-                exchange_netflow=-500_000.0,
-                whales_accumulating=2,
-                chain="polygon",
-                token_address=addr_matic,
-                metadata={
-                    "pattern": "micro_accumulation",
-                    "confidence": 0.68,
-                    "risk_factors": ["low_liquidity"],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                }
+                market_cap_usd=8_000_000_000.0
             ),
         ]
 
