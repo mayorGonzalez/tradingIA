@@ -1,0 +1,13 @@
+{
+    "pythonVersion": "3.12",
+    "include": [
+        "app",
+        "tests"
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__"
+    ],
+    "reportMissingImports": true,
+    "reportMissingTypeStubs": false
+}

@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     STOP_LOSS_PCT: float = -2.0
 
     # Límites absolutos de tamaño de posición (en USD)
-    MIN_POSITION_SIZE_USD: float = 10.0    # Mínimo para cubrir fees del exchange
+    MIN_POSITION_SIZE_USD: float = 100.0    # Mínimo para cubrir fees del exchange
     MAX_POSITION_SIZE_USD: float = 500.0   # Máximo absoluto por trade independiente del balance
 
     # Trailing stop: activa si ganancias superan este % y luego retrocede TRAIL_STOP_DISTANCE_PCT

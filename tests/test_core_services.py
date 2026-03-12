@@ -70,14 +70,14 @@ class TestRiskManager:
 
     def test_validate_execution_ok(self):
         """Señal válida debe ser aprobada."""
-        rm = RiskManager()
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
         signal = make_signal(score=80.0, risk_factors=[])
         result = rm.validate_execution(signal, available_balance=5000.0)
         assert result is True
 
     def test_validate_execution_rejects_low_balance(self):
         """Balance muy bajo → la inversión calculada cae por debajo del mínimo."""
-        rm = RiskManager()
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
         signal = make_signal(score=80.0)
         # 10% de 50$ = 5$ < MIN_POSITION_SIZE_USD=10$
         result = rm.validate_execution(signal, available_balance=50.0)
@@ -85,28 +85,28 @@ class TestRiskManager:
 
     def test_validate_execution_rejects_too_many_risk_factors(self):
         """Más de 2 factores de riesgo → rechazado."""
-        rm = RiskManager()
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
         signal = make_signal(risk_factors=["vol_high", "liquidity_low", "downtrend"])
         result = rm.validate_execution(signal, available_balance=5000.0)
         assert result is False
 
     def test_validate_execution_rejects_freefall(self):
         """Token en caída libre (price_change_1h < STOP_LOSS_PCT) → rechazado."""
-        rm = RiskManager()
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
         signal = make_signal(price_change_1h=-5.0)  # STOP_LOSS_PCT = -2.0
         result = rm.validate_execution(signal, available_balance=5000.0)
         assert result is False
 
     def test_validate_execution_rejects_fomo(self):
         """Token con alza explosiva (>50% en 1h) → filtro anti-FOMO."""
-        rm = RiskManager()
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
         signal = make_signal(price_change_1h=60.0)  # MAX_PRICE_CHANGE_1H_PCT = 50
         result = rm.validate_execution(signal, available_balance=5000.0)
         assert result is False
 
     def test_validate_execution_rejects_reentry(self):
         """No debe permitir re-entrar al mismo token en el mismo ciclo."""
-        rm = RiskManager()
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
         signal = make_signal(symbol="BTC")
         rm.register_trade("BTC", 100.0)
         result = rm.validate_execution(signal, available_balance=5000.0)
@@ -115,25 +115,25 @@ class TestRiskManager:
     def test_calculate_position_size_bounded(self):
         """La posición calculada siempre debe estar entre MIN y MAX."""
         from app.core.config import settings
-        rm = RiskManager()
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
         # Score muy bajo → debe acotarse al MIN
-        size = rm.calculate_position_size(balance=100.0, signal_score=5.0)
+        size = rm.calculate_position_size(signal_score=5.0)
         assert size >= settings.MIN_POSITION_SIZE_USD
 
         # Balance enorme → no debe superar MAX
-        size = rm.calculate_position_size(balance=1_000_000.0, signal_score=100.0)
+        size = rm.calculate_position_size(signal_score=100.0)
         assert size <= settings.MAX_POSITION_SIZE_USD
 
     def test_calculate_position_size_low_score_penalty(self):
         """Score < 50 debe reducir la posición adicional un 50%."""
-        rm = RiskManager()
-        size_low = rm.calculate_position_size(balance=10_000.0, signal_score=40.0)
-        size_high = rm.calculate_position_size(balance=10_000.0, signal_score=80.0)
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
+        size_low = rm.calculate_position_size(signal_score=40.0)
+        size_high = rm.calculate_position_size(signal_score=80.0)
         assert size_low <= size_high
 
     def test_register_trade_increments_exposure(self):
         """register_trade debe aumentar la exposición actual."""
-        rm = RiskManager()
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
         rm.register_trade("ETH", 200.0)
         assert rm.current_exposure == 200.0
         rm.register_trade("BTC", 100.0)
@@ -141,7 +141,7 @@ class TestRiskManager:
 
     def test_reset_cycle_clears_symbols(self):
         """reset_cycle debe limpiar el historial del ciclo."""
-        rm = RiskManager()
+        rm = RiskManager(total_equity_usd=10000.0, current_exposure_usd=0.0)
         rm.register_trade("ETH", 100.0)
         assert "ETH" in rm._traded_symbols_this_cycle
         rm.reset_cycle()
